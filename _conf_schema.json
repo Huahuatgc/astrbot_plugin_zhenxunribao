@@ -1,0 +1,55 @@
+{
+  "api_token": {
+    "description": "ALAPI Token (用于节假日、今日一言、早报API)",
+    "type": "string",
+    "hint": "在 https://www.alapi.cn/ 注册获取Token",
+    "obvious_hint": true,
+    "default": ""
+  },
+  "max_anime_count": {
+    "description": "今日新番最大显示数量",
+    "type": "int",
+    "hint": "建议设置为4-8之间",
+    "default": 4
+  },
+  "max_news_count": {
+    "description": "新闻最大显示数量",
+    "type": "int",
+    "hint": "建议设置为5-10之间",
+    "default": 5
+  },
+  "max_hotword_count": {
+    "description": "B站热点最大显示数量",
+    "type": "int",
+    "hint": "建议设置为4-8之间",
+    "default": 4
+  },
+  "max_holiday_count": {
+    "description": "摸鱼日历最大显示数量",
+    "type": "int",
+    "hint": "建议设置为3-5之间",
+    "default": 3
+  },
+  "enable_scheduled_push": {
+    "description": "是否启用定时推送",
+    "type": "bool",
+    "hint": "启用后会在指定时间自动推送日报到配置的群组",
+    "default": false
+  },
+  "scheduled_push_time": {
+    "description": "定时推送时间 (HH:MM格式，如 08:00)",
+    "type": "string",
+    "hint": "每日推送时间，24小时制，例如：08:00 表示每天早上8点",
+    "default": "08:00"
+  },
+  "scheduled_push_groups": {
+    "description": "定时推送目标群组列表",
+    "type": "list",
+    "hint": "群组ID列表，格式：[\"aiocqhttp:group:123456789\", ...]，可以通过在群内发送 /日报 后查看日志获取",
+    "default": []
+  }
+}
+
+
+
+

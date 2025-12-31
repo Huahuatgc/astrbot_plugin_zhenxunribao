@@ -1,0 +1,4 @@
+aiohttp>=3.8.0
+jinja2>=3.0.0
+playwright>=1.40.0
+

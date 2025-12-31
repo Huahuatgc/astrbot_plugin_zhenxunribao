@@ -1,0 +1,6 @@
+name: ripan_daily
+author: ripan
+description: 生成精美的日报内容，包含B站热点、今日新番、世界新闻、IT资讯、摸鱼日历和今日一言
+version: "1.0.0"
+repo: "https://github.com/yourusername/ripan_daily"
+
