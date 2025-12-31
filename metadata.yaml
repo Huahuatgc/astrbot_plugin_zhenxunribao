@@ -1,6 +1,6 @@
 name: astrbot_plugin_ripan_daily
-display_name: 日盼日报
-desc: 生成精美的日报内容，包含B站热点、今日新番、世界新闻、IT资讯、摸鱼日历和今日一言
+display_name: 真寻日报
+desc: 修改至 https://github.com/HibiKier/nonebot-plugin-zxreport的真寻日报.
 version: v1.0.0
 author: ripan
 repo: https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao
