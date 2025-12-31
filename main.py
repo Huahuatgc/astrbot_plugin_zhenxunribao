@@ -22,7 +22,7 @@ from .api.ithome_rss import ITHomeRSS
 from .api.zaobao_api import ZaobaoAPI
 
 
-@register("ripan_daily", "ripan", "生成精美的日报内容", "1.0.0", "https://github.com/yourusername/ripan_daily")
+@register("astrbot_plugin_ripan_daily", "ripan", "生成精美的日报内容", "1.0.0", "https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao")
 class RipanDailyPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
