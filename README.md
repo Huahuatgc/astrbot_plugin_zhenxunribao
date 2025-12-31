@@ -1,22 +1,21 @@
-# 日盼日报 (astrbot_plugin_ripan_daily)
+# 真寻日报 (astrbot_plugin_ripan_daily)
 
-一个为 AstrBot 设计的精美日报生成插件，每日为您汇总最新的资讯内容。
+✨ 基于 AstrBot 的一个插件 ✨
 
-## ✨ 功能特性
+小真寻记者为你献上今天报道！
 
-- 📺 **今日新番** - 显示今日更新的动画番剧信息
-- 🔥 **B站热点** - 汇总B站当前热门内容
-- 🌍 **世界新闻** - 获取最新的国际新闻资讯
-- 💻 **IT资讯** - IT之家最新科技资讯
-- 🐟 **摸鱼日历** - 显示节假日和重要日期提醒
-- 💬 **今日一言** - 每日一句精美文案
+> **小真寻也很可爱呀，也会很喜欢你！**
 
-## 📦 安装方法
+## 📖 介绍
+
+这是一个从 [nonebot-plugin-zxreport](https://github.com/HibiKier/nonebot-plugin-zxreport) 移植到 AstrBot 的真寻日报插件。插件会每日为你汇总最新的资讯内容，包含今日新番、B站热点、世界新闻、IT资讯、摸鱼日历和今日一言等内容。
+
+## 💿 安装
 
 ### 通过 AstrBot 插件市场安装（推荐）
 
 1. 在 AstrBot WebUI 中打开插件市场
-2. 搜索 `astrbot_plugin_ripan_daily` 或 `日盼日报`
+2. 搜索 `astrbot_plugin_ripan_daily` 或 `真寻日报`
 3. 点击安装
 
 ### 手动安装
@@ -36,51 +35,22 @@ playwright install chromium
 
 3. 在 AstrBot WebUI 的插件管理中启用插件
 
-## ⚙️ 配置说明
+## ⚙️ 配置
 
 在 AstrBot WebUI 的插件配置页面进行配置：
 
-### 必需配置
+| 配置 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `api_token` | str | `""` | ALAPI Token，用于节假日、今日一言、早报API。在 [https://admin.alapi.cn/user/login](https://admin.alapi.cn/user/login) 登录后获取token |
+| `max_anime_count` | int | `4` | 今日新番最大显示数量，建议设置为4-8之间 |
+| `max_news_count` | int | `5` | 新闻最大显示数量，建议设置为5-10之间 |
+| `max_hotword_count` | int | `4` | B站热点最大显示数量，建议设置为4-8之间 |
+| `max_holiday_count` | int | `3` | 摸鱼日历最大显示数量，建议设置为3-5之间 |
+| `enable_scheduled_push` | bool | `false` | 是否启用定时推送，启用后会在指定时间自动推送日报到配置的群组 |
+| `scheduled_push_time` | str | `"08:00"` | 定时推送时间，HH:MM格式（24小时制），例如：`08:00` 表示每天早上8点 |
+| `scheduled_push_groups` | list | `[]` | 定时推送目标群组列表，格式：`["aiocqhttp:group:123456789", ...]`。可以通过在群内发送 `/日报` 后查看日志获取群组ID |
 
-- **api_token** (string): ALAPI Token
-  - 描述：用于节假日、今日一言、早报API
-  - 获取方式：在 [https://www.alapi.cn/](https://www.alapi.cn/) 注册获取Token
-  - 默认值：`""`
-
-### 可选配置
-
-- **max_anime_count** (int): 今日新番最大显示数量
-  - 建议值：4-8
-  - 默认值：`4`
-
-- **max_news_count** (int): 新闻最大显示数量
-  - 建议值：5-10
-  - 默认值：`5`
-
-- **max_hotword_count** (int): B站热点最大显示数量
-  - 建议值：4-8
-  - 默认值：`4`
-
-- **max_holiday_count** (int): 摸鱼日历最大显示数量
-  - 建议值：3-5
-  - 默认值：`3`
-
-### 定时推送配置
-
-- **enable_scheduled_push** (bool): 是否启用定时推送
-  - 描述：启用后会在指定时间自动推送日报到配置的群组
-  - 默认值：`false`
-
-- **scheduled_push_time** (string): 定时推送时间
-  - 格式：HH:MM（24小时制，如 `08:00` 表示每天早上8点）
-  - 默认值：`"08:00"`
-
-- **scheduled_push_groups** (list): 定时推送目标群组列表
-  - 格式：`["aiocqhttp:group:123456789", ...]`
-  - 获取群组ID：在群内发送 `/日报` 后查看日志获取
-  - 默认值：`[]`
-
-## 🚀 使用方法
+## 🎁 使用
 
 ### 手动生成日报
 
@@ -94,11 +64,11 @@ playwright install chromium
 ### 定时推送
 
 1. 在插件配置中启用 `enable_scheduled_push`
-2. 设置 `scheduled_push_time`（推送时间）
+2. 设置 `scheduled_push_time`（推送时间，默认 08:00）
 3. 配置 `scheduled_push_groups`（目标群组列表）
 4. 保存配置，插件将自动在指定时间推送日报
 
-## 📋 依赖说明
+## 📋 依赖
 
 - `aiohttp>=3.8.0` - 异步HTTP请求库
 - `jinja2>=3.0.0` - HTML模板渲染引擎
@@ -123,24 +93,22 @@ playwright install chromium
 - 使用 **aiohttp** 异步获取多个数据源
 - 资源文件通过 Base64 编码嵌入HTML，确保图片和字体正常显示
 
-## 📝 更新日志
+## 📝 功能特性
 
-### v1.0.0
-- ✨ 初始版本发布
-- 📺 支持今日新番显示
-- 🔥 支持B站热点汇总
-- 🌍 支持世界新闻获取
-- 💻 支持IT资讯获取
-- 🐟 支持摸鱼日历显示
-- 💬 支持今日一言显示
-- ⏰ 支持定时推送功能
+- 📺 **今日新番** - 显示今日更新的动画番剧信息
+- 🔥 **B站热点** - 汇总B站当前热门内容
+- 🌍 **世界新闻** - 获取最新的国际新闻资讯
+- 💻 **IT资讯** - IT之家最新科技资讯
+- 🐟 **摸鱼日历** - 显示节假日和重要日期提醒
+- 💬 **今日一言** - 每日一句精美文案
 
 ## 📄 许可证
 
 本项目采用 [AGPL-3.0](LICENSE) 许可证。
 
-## 🙏 致谢
+## ❤ 致谢
 
+- [nonebot-plugin-zxreport](https://github.com/HibiKier/nonebot-plugin-zxreport) - 原始项目，由 [HibiKier](https://github.com/HibiKier) 开发
 - [AstrBot](https://github.com/AstrBotDevs/AstrBot) - 优秀的机器人框架
 - [ALAPI](https://www.alapi.cn/) - 提供API服务
 - [Bangumi](https://bgm.tv/) - 番剧数据来源

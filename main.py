@@ -22,8 +22,8 @@ from .api.ithome_rss import ITHomeRSS
 from .api.zaobao_api import ZaobaoAPI
 
 
-@register("astrbot_plugin_ripan_daily", "ripan", "生成精美的日报内容", "1.0.0", "https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao")
-class RipanDailyPlugin(Star):
+@register("astrbot_plugin_ripan_daily", "ripan", "小真寻记者为你献上今日报道！", "1.0.0", "https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao")
+class ZhenxunReportPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
@@ -44,7 +44,7 @@ class RipanDailyPlugin(Star):
             asyncio.create_task(self._scheduled_push_task())
             logger.info("定时推送任务已启动")
 
-        logger.info("日盼日报插件已加载")
+        logger.info("真寻日报插件已加载")
 
     @filter.command("日报")
     async def daily_news(self, event: AstrMessageEvent):
@@ -379,5 +379,5 @@ html, body {
             logger.error(f"定时推送日报失败: {e}", exc_info=True)
 
     async def terminate(self):
-        logger.info("日盼日报插件正在卸载...")
+        logger.info("真寻日报插件正在卸载...")
 
