@@ -2,50 +2,43 @@
 BGM (Bangumi) API 处理模块
 用于获取今日新番数据，供日报模板使用
 """
-import requests
+import aiohttp
 from datetime import datetime
 from typing import List, Dict, Optional
-import json
 
-# 异步支持（可选）
-try:
-    import aiohttp
-    HAS_AIOHTTP = True
-except ImportError:
-    HAS_AIOHTTP = False
+from astrbot.api import logger
 
 
 class BGMAPI:
     """BGM API 处理类"""
     
-    def __init__(self):
-        """初始化"""
+    def __init__(self, session: Optional[aiohttp.ClientSession] = None):
+        """
+        初始化
+        
+        Args:
+            session: 可选的 aiohttp.ClientSession，如果提供则复用，否则每次请求时创建
+        """
         self.url = "https://api.bgm.tv/calendar"
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
+        self._session = session
+        self._own_session = False
     
-    def get_calendar_sync(self) -> Optional[List]:
-        """
-        同步方式获取 BGM 日历数据
-        
-        Returns:
-            API 返回的原始数据，失败返回 None
-        """
-        try:
-            response = requests.get(
-                self.url,
-                headers=self.headers,
-                timeout=10
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"请求 BGM API 失败: {e}")
-            return None
-        except json.JSONDecodeError as e:
-            print(f"解析 JSON 失败: {e}")
-            return None
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """获取session，如果已有则复用，否则创建新的"""
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+            self._own_session = True
+        return self._session
+    
+    async def _close_session(self):
+        """关闭自己创建的session"""
+        if self._own_session and self._session:
+            await self._session.close()
+            self._session = None
+            self._own_session = False
     
     async def get_calendar_async(self) -> Optional[List]:
         """
@@ -54,23 +47,20 @@ class BGMAPI:
         Returns:
             API 返回的原始数据，失败返回 None
         """
-        if not HAS_AIOHTTP:
-            raise ImportError("需要安装 aiohttp 库才能使用异步功能: pip install aiohttp")
-        
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    self.url,
-                    headers=self.headers,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    response.raise_for_status()
-                    return await response.json()
+            session = await self._get_session()
+            async with session.get(
+                self.url,
+                headers=self.headers,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
         except aiohttp.ClientError as e:
-            print(f"请求 BGM API 失败: {e}")
+            logger.warning(f"请求 BGM API 失败: {e}")
             return None
         except Exception as e:
-            print(f"获取 BGM 数据失败: {e}")
+            logger.error(f"获取 BGM 数据失败: {e}", exc_info=True)
             return None
     
     def parse_today_anime(self, api_data: Optional[List], max_count: int = 4) -> List[Dict]:
@@ -140,13 +130,13 @@ class BGMAPI:
             
             # 如果没有找到数据，返回默认值
             if len(anime_list) == 0:
-                print("警告: 未找到今日新番数据，使用默认数据")
+                logger.warning("未找到今日新番数据，使用默认数据")
                 return self._get_default_anime()
             
             return anime_list
             
         except Exception as e:
-            print(f"解析 BGM 数据时出错: {e}")
+            logger.error(f"解析 BGM 数据时出错: {e}", exc_info=True)
             return self._get_default_anime()
     
     def _get_default_anime(self) -> List[Dict]:
@@ -163,19 +153,6 @@ class BGMAPI:
             {'title': '鬼灭之刃 柱训练篇', 'image': './res/image/anime4.jpg'}
         ]
     
-    def get_today_anime_sync(self, max_count: int = 4) -> List[Dict]:
-        """
-        同步方式获取今日新番数据（一步到位）
-        
-        Args:
-            max_count: 最多返回几个新番
-            
-        Returns:
-            格式化的今日新番列表
-        """
-        api_data = self.get_calendar_sync()
-        return self.parse_today_anime(api_data, max_count)
-    
     async def get_today_anime_async(self, max_count: int = 4) -> List[Dict]:
         """
         异步方式获取今日新番数据（推荐用于 AstrBot）
@@ -188,24 +165,3 @@ class BGMAPI:
         """
         api_data = await self.get_calendar_async()
         return self.parse_today_anime(api_data, max_count)
-
-
-# 使用示例
-if __name__ == "__main__":
-    # 初始化
-    api = BGMAPI()
-    
-    # 同步方式测试
-    print("=" * 50)
-    print("同步方式获取今日新番：")
-    print("=" * 50)
-    anime_list = api.get_today_anime_sync(max_count=4)
-    for i, anime in enumerate(anime_list, 1):
-        print(f"  {i}. {anime['title']}")
-        print(f"     图片: {anime['image']}")
-    
-    print("\n" + "=" * 50)
-    print("JSON 格式（可用于模板）：")
-    print("=" * 50)
-    print(json.dumps(anime_list, ensure_ascii=False, indent=2))
-

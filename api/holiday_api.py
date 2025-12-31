@@ -2,73 +2,45 @@
 节假日 API 处理模块
 用于获取和解析节假日数据，供日报模板使用
 """
-import requests
+import aiohttp
 from datetime import datetime, date
 from typing import List, Dict, Optional
-import json
 
-# 异步支持（可选）
-try:
-    import aiohttp
-    HAS_AIOHTTP = True
-except ImportError:
-    HAS_AIOHTTP = False
+from astrbot.api import logger
 
 
 class HolidayAPI:
     """节假日 API 处理类"""
     
-    def __init__(self, token: str, year: Optional[int] = None):
+    def __init__(self, token: str, session: Optional[aiohttp.ClientSession] = None, year: Optional[int] = None):
         """
         初始化
         
         Args:
             token: API token
+            session: 可选的 aiohttp.ClientSession，如果提供则复用，否则每次请求时创建
             year: 指定年份，None 则使用当前年份
         """
         self.token = token
         self.url = "https://v3.alapi.cn/api/holiday"
         self.headers = {"Content-Type": "application/json"}
         self.year = year or datetime.now().year
+        self._session = session
+        self._own_session = False
     
-    def get_holidays_sync(self, year: Optional[int] = None) -> Optional[Dict]:
-        """
-        同步方式获取节假日数据
-        
-        Args:
-            year: 指定年份，None 则使用初始化时的年份
-            
-        Returns:
-            API 返回的原始数据，失败返回 None
-        """
-        try:
-            params = {"token": self.token}
-            # 如果 API 支持年份参数，可以添加
-            # params["year"] = year or self.year
-            response = requests.get(
-                self.url, 
-                headers=self.headers, 
-                params=params,
-                timeout=10
-            )
-            response.raise_for_status()
-            data = response.json()
-            
-            # 如果 API 返回的是当前年份的数据，但我们需要下一年的
-            # 可以尝试获取下一年的数据
-            current_year = datetime.now().year
-            if year and year > current_year:
-                # 如果指定了未来年份，但 API 只返回当前年份
-                # 这里可以根据实际情况调整
-                pass
-            
-            return data
-        except requests.exceptions.RequestException as e:
-            print(f"请求节假日 API 失败: {e}")
-            return None
-        except json.JSONDecodeError as e:
-            print(f"解析 JSON 失败: {e}")
-            return None
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """获取session，如果已有则复用，否则创建新的"""
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+            self._own_session = True
+        return self._session
+    
+    async def _close_session(self):
+        """关闭自己创建的session"""
+        if self._own_session and self._session:
+            await self._session.close()
+            self._session = None
+            self._own_session = False
     
     async def get_holidays_async(self) -> Optional[Dict]:
         """
@@ -77,25 +49,22 @@ class HolidayAPI:
         Returns:
             API 返回的原始数据，失败返回 None
         """
-        if not HAS_AIOHTTP:
-            raise ImportError("需要安装 aiohttp 库才能使用异步功能: pip install aiohttp")
-        
         try:
+            session = await self._get_session()
             params = {"token": self.token}
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    self.url,
-                    headers=self.headers,
-                    params=params,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    response.raise_for_status()
-                    return await response.json()
+            async with session.get(
+                self.url,
+                headers=self.headers,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
         except aiohttp.ClientError as e:
-            print(f"请求节假日 API 失败: {e}")
+            logger.warning(f"请求节假日 API 失败: {e}")
             return None
         except Exception as e:
-            print(f"获取节假日数据失败: {e}")
+            logger.error(f"获取节假日数据失败: {e}", exc_info=True)
             return None
     
     def parse_holidays(self, api_data: Optional[Dict], max_count: int = 3) -> List[Dict]:
@@ -148,7 +117,7 @@ class HolidayAPI:
                 try:
                     holiday_date = datetime.strptime(date_str, '%Y-%m-%d').date()
                 except ValueError as e:
-                    print(f"日期解析失败: {date_str}, 错误: {e}")
+                    logger.warning(f"日期解析失败: {date_str}, 错误: {e}")
                     continue
                 
                 # 只保留未来的节假日（包括今天）
@@ -188,7 +157,7 @@ class HolidayAPI:
             
             # 如果没有找到未来的节假日，返回默认值
             if len(result) == 0:
-                print("警告: 未找到未来的节假日数据，使用默认数据")
+                logger.warning("未找到未来的节假日数据，使用默认数据")
                 return self._get_default_holidays()
             
             # 格式化输出（移除 date 字段，只保留模板需要的）
@@ -198,7 +167,7 @@ class HolidayAPI:
             ]
             
         except Exception as e:
-            print(f"解析节假日数据时出错: {e}")
+            logger.error(f"解析节假日数据时出错: {e}", exc_info=True)
             return self._get_default_holidays()
     
     def _get_default_holidays(self) -> List[Dict]:
@@ -214,19 +183,6 @@ class HolidayAPI:
             {'name': '清明节', 'days_left': 78}
         ]
     
-    def get_moyu_list_sync(self, max_count: int = 3) -> List[Dict]:
-        """
-        同步方式获取摸鱼日历数据（一步到位）
-        
-        Args:
-            max_count: 最多返回几个节假日
-            
-        Returns:
-            格式化的摸鱼日历列表
-        """
-        api_data = self.get_holidays_sync()
-        return self.parse_holidays(api_data, max_count)
-    
     async def get_moyu_list_async(self, max_count: int = 3) -> List[Dict]:
         """
         异步方式获取摸鱼日历数据（推荐用于 AstrBot）
@@ -239,23 +195,3 @@ class HolidayAPI:
         """
         api_data = await self.get_holidays_async()
         return self.parse_holidays(api_data, max_count)
-
-
-# 使用示例
-if __name__ == "__main__":
-    # 初始化
-    api = HolidayAPI(token="uc5d9ns71w33my1aep94g61w0zn9in")
-    
-    # 同步方式测试
-    print("=" * 50)
-    print("同步方式获取摸鱼日历：")
-    print("=" * 50)
-    moyu_list = api.get_moyu_list_sync(max_count=5)
-    for item in moyu_list:
-        print(f"  {item['name']}: 还剩 {item['days_left']} 天")
-    
-    print("\n" + "=" * 50)
-    print("JSON 格式（可用于模板）：")
-    print("=" * 50)
-    print(json.dumps(moyu_list, ensure_ascii=False, indent=2))
-

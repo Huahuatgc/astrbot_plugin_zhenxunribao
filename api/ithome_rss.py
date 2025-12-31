@@ -2,50 +2,44 @@
 IT之家 RSS 处理模块
 用于获取 IT 资讯，供日报模板使用
 """
-import requests
+import aiohttp
 import xml.etree.ElementTree as ET
 from typing import List, Optional
 from html import unescape
 
-# 异步支持（可选）
-try:
-    import aiohttp
-    HAS_AIOHTTP = True
-except ImportError:
-    HAS_AIOHTTP = False
+from astrbot.api import logger
 
 
 class ITHomeRSS:
     """IT之家 RSS 处理类"""
     
-    def __init__(self):
-        """初始化"""
+    def __init__(self, session: Optional[aiohttp.ClientSession] = None):
+        """
+        初始化
+        
+        Args:
+            session: 可选的 aiohttp.ClientSession，如果提供则复用，否则每次请求时创建
+        """
         self.url = "https://www.ithome.com/rss/"
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
+        self._session = session
+        self._own_session = False
     
-    def get_rss_sync(self) -> Optional[ET.Element]:
-        """
-        同步方式获取 RSS 数据
-        
-        Returns:
-            XML 根元素，失败返回 None
-        """
-        try:
-            response = requests.get(
-                self.url,
-                headers=self.headers,
-                timeout=10
-            )
-            response.raise_for_status()
-            return ET.fromstring(response.content)
-        except requests.exceptions.RequestException as e:
-            print(f"请求 IT之家 RSS 失败: {e}")
-            return None
-        except ET.ParseError as e:
-            print(f"解析 XML 失败: {e}")
-            return None
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """获取session，如果已有则复用，否则创建新的"""
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+            self._own_session = True
+        return self._session
+    
+    async def _close_session(self):
+        """关闭自己创建的session"""
+        if self._own_session and self._session:
+            await self._session.close()
+            self._session = None
+            self._own_session = False
     
     async def get_rss_async(self) -> Optional[ET.Element]:
         """
@@ -54,27 +48,24 @@ class ITHomeRSS:
         Returns:
             XML 根元素，失败返回 None
         """
-        if not HAS_AIOHTTP:
-            raise ImportError("需要安装 aiohttp 库才能使用异步功能: pip install aiohttp")
-        
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    self.url,
-                    headers=self.headers,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    response.raise_for_status()
-                    content = await response.read()
-                    return ET.fromstring(content)
+            session = await self._get_session()
+            async with session.get(
+                self.url,
+                headers=self.headers,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as response:
+                response.raise_for_status()
+                content = await response.read()
+                return ET.fromstring(content)
         except aiohttp.ClientError as e:
-            print(f"请求 IT之家 RSS 失败: {e}")
+            logger.warning(f"请求 IT之家 RSS 失败: {e}")
             return None
         except ET.ParseError as e:
-            print(f"解析 XML 失败: {e}")
+            logger.warning(f"解析 XML 失败: {e}")
             return None
         except Exception as e:
-            print(f"获取 RSS 数据失败: {e}")
+            logger.error(f"获取 RSS 数据失败: {e}", exc_info=True)
             return None
     
     def parse_news(self, rss_root: Optional[ET.Element], max_count: int = 5) -> List[str]:
@@ -113,13 +104,13 @@ class ITHomeRSS:
                         news_list.append(title)
             
             if len(news_list) == 0:
-                print("警告: 未找到新闻数据，使用默认数据")
+                logger.warning("未找到新闻数据，使用默认数据")
                 return self._get_default_news()
             
             return news_list
             
         except Exception as e:
-            print(f"解析 RSS 数据时出错: {e}")
+            logger.error(f"解析 RSS 数据时出错: {e}", exc_info=True)
             return self._get_default_news()
     
     def _get_default_news(self) -> List[str]:
@@ -137,19 +128,6 @@ class ITHomeRSS:
             '云计算服务推出新功能'
         ]
     
-    def get_it_news_sync(self, max_count: int = 5) -> List[str]:
-        """
-        同步方式获取 IT 资讯数据（一步到位）
-        
-        Args:
-            max_count: 最多返回几条新闻
-            
-        Returns:
-            新闻标题列表
-        """
-        rss_root = self.get_rss_sync()
-        return self.parse_news(rss_root, max_count)
-    
     async def get_it_news_async(self, max_count: int = 5) -> List[str]:
         """
         异步方式获取 IT 资讯数据（推荐用于 AstrBot）
@@ -162,25 +140,3 @@ class ITHomeRSS:
         """
         rss_root = await self.get_rss_async()
         return self.parse_news(rss_root, max_count)
-
-
-# 使用示例
-if __name__ == "__main__":
-    import json
-    
-    # 初始化
-    rss = ITHomeRSS()
-    
-    # 同步方式测试
-    print("=" * 50)
-    print("同步方式获取 IT 资讯：")
-    print("=" * 50)
-    news_list = rss.get_it_news_sync(max_count=5)
-    for i, news in enumerate(news_list, 1):
-        print(f"  {i}. {news}")
-    
-    print("\n" + "=" * 50)
-    print("JSON 格式（可用于模板）：")
-    print("=" * 50)
-    print(json.dumps(news_list, ensure_ascii=False, indent=2))
-

@@ -1,9 +1,43 @@
-import requests
+"""
+Bilibili API 处理模块
+用于获取B站热点数据
+"""
+import aiohttp
 from typing import List, Optional, Dict
 
+from astrbot.api import logger
+
+
 class BilibiliAPI:
-    def __init__(self):
+    """Bilibili API 处理类"""
+    
+    def __init__(self, session: Optional[aiohttp.ClientSession] = None):
+        """
+        初始化
+        
+        Args:
+            session: 可选的 aiohttp.ClientSession，如果提供则复用，否则每次请求时创建
+        """
         self.url = "https://s.search.bilibili.com/main/hotword"
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        self._session = session
+        self._own_session = False
+    
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """获取session，如果已有则复用，否则创建新的"""
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+            self._own_session = True
+        return self._session
+    
+    async def _close_session(self):
+        """关闭自己创建的session"""
+        if self._own_session and self._session:
+            await self._session.close()
+            self._session = None
+            self._own_session = False
 
     def _get_default_hotwords(self) -> List[str]:
         return [
@@ -12,36 +46,6 @@ class BilibiliAPI:
             '科技区UP主发布新视频',
             '二次元新番话题持续升温'
         ]
-
-    def get_hotwords_sync(self, max_count: int = 4) -> List[str]:
-        """
-        同步获取B站热点
-        
-        Args:
-            max_count: 最大返回数量，默认4条
-            
-        Returns:
-            List[str]: 热点标题列表
-        """
-        try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-            response = requests.get(self.url, headers=headers, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            
-            if data.get("code") == 0 and data.get("list"):
-                return self.parse_hotwords_data(data, max_count)
-            else:
-                print(f"[警告] API返回异常: code={data.get('code')}")
-                return self._get_default_hotwords()[:max_count]
-        except requests.exceptions.RequestException as e:
-            print(f"[错误] 获取B站热点失败: {e}")
-            return self._get_default_hotwords()[:max_count]
-        except Exception as e:
-            print(f"[错误] 解析B站热点数据失败: {e}")
-            return self._get_default_hotwords()[:max_count]
 
     async def get_hotwords_async(self, max_count: int = 4) -> List[str]:
         """
@@ -54,22 +58,18 @@ class BilibiliAPI:
             List[str]: 热点标题列表
         """
         try:
-            import aiohttp
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-            async with aiohttp.ClientSession() as session:
-                async with session.get(self.url, headers=headers, timeout=10) as response:
-                    response.raise_for_status()
-                    data = await response.json()
-                    
-                    if data.get("code") == 0 and data.get("list"):
-                        return self.parse_hotwords_data(data, max_count)
-                    else:
-                        print(f"[警告] API返回异常: code={data.get('code')}")
-                        return self._get_default_hotwords()[:max_count]
+            session = await self._get_session()
+            async with session.get(self.url, headers=self.headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                response.raise_for_status()
+                data = await response.json()
+                
+                if data.get("code") == 0 and data.get("list"):
+                    return self.parse_hotwords_data(data, max_count)
+                else:
+                    logger.warning(f"API返回异常: code={data.get('code')}")
+                    return self._get_default_hotwords()[:max_count]
         except Exception as e:
-            print(f"[错误] 获取B站热点失败: {e}")
+            logger.error(f"获取B站热点失败: {e}", exc_info=True)
             return self._get_default_hotwords()[:max_count]
 
     def parse_hotwords_data(self, api_data: Optional[Dict], max_count: int = 4) -> List[str]:
@@ -99,6 +99,3 @@ class BilibiliAPI:
             hotwords.extend(default_list[:max_count - len(hotwords)])
         
         return hotwords[:max_count]
-
-
-

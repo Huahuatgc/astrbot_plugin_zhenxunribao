@@ -6,6 +6,7 @@ import tempfile
 from datetime import datetime, timedelta, time
 from urllib.request import pathname2url
 
+import aiohttp
 from jinja2 import Template
 from playwright.async_api import async_playwright
 
@@ -32,13 +33,16 @@ class ZhenxunReportPlugin(Star):
         self.template_path = os.path.join(plugin_dir, "daily_news.html")
         self.plugin_dir = plugin_dir
 
+        # 创建共享的 aiohttp ClientSession，供所有 API 类复用
+        self.http_session = aiohttp.ClientSession()
+
         api_token = config.get("api_token", "")
-        self.bgm_api = BGMAPI()
-        self.bilibili_api = BilibiliAPI()
-        self.hitokoto_api = HitokotoAPI(token=api_token)
-        self.holiday_api = HolidayAPI(token=api_token)
-        self.ithome_rss = ITHomeRSS()
-        self.zaobao_api = ZaobaoAPI(token=api_token)
+        self.bgm_api = BGMAPI(session=self.http_session)
+        self.bilibili_api = BilibiliAPI(session=self.http_session)
+        self.hitokoto_api = HitokotoAPI(token=api_token, session=self.http_session)
+        self.holiday_api = HolidayAPI(token=api_token, session=self.http_session)
+        self.ithome_rss = ITHomeRSS(session=self.http_session)
+        self.zaobao_api = ZaobaoAPI(token=api_token, session=self.http_session)
 
         if config.get("enable_scheduled_push", False):
             asyncio.create_task(self._scheduled_push_task())
@@ -380,4 +384,8 @@ html, body {
 
     async def terminate(self):
         logger.info("真寻日报插件正在卸载...")
+        # 关闭共享的 HTTP session
+        if self.http_session and not self.http_session.closed:
+            await self.http_session.close()
+            logger.info("HTTP session 已关闭")
 

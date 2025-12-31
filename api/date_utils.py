@@ -36,9 +36,8 @@ def get_current_date_info() -> Dict[str, str]:
     # 日期字符串
     date_str = now.strftime('%Y-%m-%d')
     
-    # 农历日期（简化版，实际应该使用农历库）
-    # 这里先用一个简单的占位符，后续可以集成 zhdate 等库
-    cn_date_str = get_lunar_date_simple(now)
+    # 农历日期
+    cn_date_str = get_lunar_date(now)
     
     return {
         'week_cn': week_cn,
@@ -47,51 +46,40 @@ def get_current_date_info() -> Dict[str, str]:
     }
 
 
-def get_lunar_date_simple(date_obj: datetime) -> str:
+def get_lunar_date(date_obj: datetime) -> str:
     """
-    简化版农历日期获取（占位符）
-    实际应该使用 zhdate 或类似的库
+    获取农历日期
+    优先使用 zhdate 库，如果未安装则返回"农历未知"
     
     Args:
         date_obj: 日期对象
         
     Returns:
-        农历日期字符串，如 '腊月初五'
-    """
-    # TODO: 集成真正的农历库，如 zhdate
-    # 临时返回一个占位符
-    return '腊月初五'
-
-
-def get_lunar_date_with_library(date_obj: datetime) -> str:
-    """
-    使用 zhdate 库获取农历日期（需要安装: pip install zhdate）
-    
-    Args:
-        date_obj: 日期对象
-        
-    Returns:
-        农历日期字符串，如 '腊月初五'
+        农历日期字符串，如 '腊月初五'，失败时返回 '农历未知'
     """
     try:
         from zhdate import ZhDate
         lunar = ZhDate.from_datetime(date_obj)
-        return f"{lunar.lunar_month}月{lunar.lunar_day}日"
+        lunar_months = ['', '正', '二', '三', '四', '五', '六', '七', '八', '九', '十', '冬', '腊']
+        month_name = lunar_months[lunar.lunar_month] if lunar.lunar_month < len(lunar_months) else str(lunar.lunar_month)
+        if lunar.lunar_day == 1:
+            day_name = '初一'
+        elif lunar.lunar_day <= 10:
+            day_names = ['', '初一', '初二', '初三', '初四', '初五', '初六', '初七', '初八', '初九', '初十']
+            day_name = day_names[lunar.lunar_day]
+        elif lunar.lunar_day < 20:
+            day_name = f"十{['', '一', '二', '三', '四', '五', '六', '七', '八', '九'][lunar.lunar_day - 10]}"
+        elif lunar.lunar_day == 20:
+            day_name = '二十'
+        elif lunar.lunar_day < 30:
+            day_name = f"廿{['', '一', '二', '三', '四', '五', '六', '七', '八', '九'][lunar.lunar_day - 20]}"
+        else:
+            day_name = '三十'
+        return f"{month_name}月{day_name}"
     except ImportError:
-        print("警告: 未安装 zhdate 库，使用简化版农历日期")
-        return get_lunar_date_simple(date_obj)
-    except Exception as e:
-        print(f"获取农历日期失败: {e}")
-        return get_lunar_date_simple(date_obj)
-
-
-if __name__ == "__main__":
-    # 测试
-    info = get_current_date_info()
-    print("当前日期信息：")
-    print(f"  星期: {info['week_cn']}")
-    print(f"  日期: {info['date_str']}")
-    print(f"  农历: {info['cn_date_str']}")
+        return "农历未知"
+    except Exception:
+        return "农历未知"
 
 
 
