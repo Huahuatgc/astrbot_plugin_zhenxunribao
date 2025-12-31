@@ -22,7 +22,7 @@ from .api.ithome_rss import ITHomeRSS
 from .api.zaobao_api import ZaobaoAPI
 
 
-@register("astrbot_plugin_ripan_daily", "ripan", "小真寻记者为你献上今日报道！", "1.0.0", "https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao")
+@register("astrbot_plugin_zhenxunribao", "Huahuatgc", "小真寻记者为你献上今日报道！", "1.0.0", "https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao")
 class ZhenxunReportPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
