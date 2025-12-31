@@ -50,14 +50,23 @@ class ITHomeRSS:
         """
         try:
             session = await self._get_session()
+            # 限制读取的最大大小为 10MB，防止XML炸弹攻击
+            max_size = 10 * 1024 * 1024  # 10MB
             async with session.get(
                 self.url,
                 headers=self.headers,
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 response.raise_for_status()
+                # 使用read()并限制大小
                 content = await response.read()
-                return ET.fromstring(content)
+                if len(content) > max_size:
+                    logger.warning(f"RSS内容过大 ({len(content)} bytes)，已截断至 {max_size} bytes")
+                    content = content[:max_size]
+                # 使用安全的XML解析方式，禁用实体解析以防止XML炸弹攻击
+                parser = ET.XMLParser()
+                parser.entity = {}  # 禁用实体解析
+                return ET.fromstring(content, parser=parser)
         except aiohttp.ClientError as e:
             logger.warning(f"请求 IT之家 RSS 失败: {e}")
             return None

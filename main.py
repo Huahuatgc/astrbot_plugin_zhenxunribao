@@ -44,8 +44,9 @@ class ZhenxunReportPlugin(Star):
         self.ithome_rss = ITHomeRSS(session=self.http_session)
         self.zaobao_api = ZaobaoAPI(token=api_token, session=self.http_session)
 
+        self.push_task = None
         if config.get("enable_scheduled_push", False):
-            asyncio.create_task(self._scheduled_push_task())
+            self.push_task = asyncio.create_task(self._scheduled_push_task())
             logger.info("定时推送任务已启动")
 
         logger.info("真寻日报插件已加载")
@@ -53,12 +54,21 @@ class ZhenxunReportPlugin(Star):
     @filter.command("日报")
     async def daily_news(self, event: AstrMessageEvent):
         """生成日报"""
+        image_path = None
         try:
             image_path = await self._generate_daily_image()
             yield event.image_result(image_path)
         except Exception as e:
             logger.error(f"生成日报时出错: {e}", exc_info=True)
             yield event.plain_result(f"生成日报时出错: {str(e)}")
+        finally:
+            # 清理临时图片文件
+            if image_path and os.path.exists(image_path):
+                try:
+                    os.remove(image_path)
+                    logger.debug(f"已清理临时图片文件: {image_path}")
+                except Exception as e:
+                    logger.warning(f"清理临时图片文件失败: {e}")
 
     async def _generate_daily_image(self) -> str:
         logger.info("开始生成日报")
@@ -250,12 +260,7 @@ html, body {
                 browser = await p.chromium.launch(headless=True)
                 context = None
                 try:
-                    context = await browser.new_context(
-                        viewport={"width": 1156, "height": 6000},
-                        device_scale_factor=2,
-                    )
-                    page = await context.new_page()
-
+                    page = await browser.new_page()
                     file_url = f"file://{pathname2url(temp_html_path)}"
                     await page.goto(file_url, wait_until="networkidle")
                     await page.wait_for_timeout(2000)
@@ -273,9 +278,17 @@ html, body {
                     wrapper_width = int(box["width"])
                     wrapper_height = int(box["height"])
 
+                    # 动态设置viewport高度，添加一些余量
+                    viewport_height = max(int(wrapper_height * 1.2), 1000)
+                    viewport_width = 1156
+
+                    # 重新设置viewport以匹配实际内容
+                    await page.set_viewport_size({"width": viewport_width, "height": viewport_height})
+
                     logger.info(
                         f"Wrapper位置: x={wrapper_x}, y={wrapper_y}, "
-                        f"width={wrapper_width}, height={wrapper_height}"
+                        f"width={wrapper_width}, height={wrapper_height}, "
+                        f"viewport: {viewport_width}x{viewport_height}"
                     )
 
                     clip_config = {
@@ -297,8 +310,6 @@ html, body {
                     return output_path
 
                 finally:
-                    if context:
-                        await context.close()
                     await browser.close()
 
         except Exception as e:
@@ -384,6 +395,14 @@ html, body {
 
     async def terminate(self):
         logger.info("真寻日报插件正在卸载...")
+        # 取消定时推送任务
+        if self.push_task and not self.push_task.done():
+            self.push_task.cancel()
+            try:
+                await self.push_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("定时推送任务已取消")
         # 关闭共享的 HTTP session
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
