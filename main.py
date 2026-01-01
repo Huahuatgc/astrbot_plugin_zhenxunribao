@@ -62,10 +62,34 @@ class ZhenxunReportPlugin(Star):
         try:
             # 等待 15 秒让系统完全初始化
             await asyncio.sleep(15)
+            
+            # 取消已存在的旧任务（防止重复）
+            if self.push_task and not self.push_task.done():
+                self.push_task.cancel()
+                try:
+                    await self.push_task
+                except asyncio.CancelledError:
+                    pass
+            
+            # 确保 HTTP session 可用
+            if self.http_session is None or self.http_session.closed:
+                self.http_session = aiohttp.ClientSession()
+                # 重新初始化 API 客户端的 session
+                self._reinit_api_sessions()
+            
             self.push_task = asyncio.create_task(self._scheduled_push_task())
             logger.info("定时推送任务已启动（延迟初始化）")
         except Exception as e:
             logger.error(f"启动定时推送任务失败: {e}", exc_info=True)
+
+    def _reinit_api_sessions(self):
+        """重新初始化 API 客户端的 session"""
+        self.bgm_api._session = self.http_session
+        self.bilibili_api._session = self.http_session
+        self.hitokoto_api._session = self.http_session
+        self.holiday_api._session = self.http_session
+        self.ithome_rss._session = self.http_session
+        self.zaobao_api._session = self.http_session
 
     @filter.command("日报")
     async def daily_news(self, event: AstrMessageEvent):
@@ -534,7 +558,7 @@ html, body {
             
             # 构建 prompt
             prompt_parts = [
-                f"现在是{date_info['date']} {date_info['weekday']}",
+                f"现在是{date_info['date_str']} {date_info['week_cn']}",
                 f"时间是{hour}点",
             ]
             
@@ -543,8 +567,8 @@ html, body {
                 if holiday_names:
                     prompt_parts.append(f"即将到来的节日：{', '.join(holiday_names[:2])}")
             
-            if date_info.get('lunar_date'):
-                prompt_parts.append(f"农历{date_info['lunar_date']}")
+            if date_info.get('cn_date_str') and date_info.get('cn_date_str') != '农历未知':
+                prompt_parts.append(f"农历{date_info['cn_date_str']}")
             
             prompt = (
                 f"{', '.join(prompt_parts)}。"
