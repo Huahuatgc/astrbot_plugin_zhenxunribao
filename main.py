@@ -510,9 +510,117 @@ html, body {
         
         return group_id_str
 
+    async def _generate_greeting_text(self) -> str:
+        """使用 AI 生成个性化的推送文本"""
+        try:
+            # 获取当前时间和节日信息
+            from datetime import datetime
+            now = datetime.now()
+            hour = now.hour
+            date_info = get_current_date_info()
+            
+            # 获取节假日信息
+            moyu_list = []
+            try:
+                holiday_data = await self.holiday_api.get_moyu_list_async(max_count=1)
+                if holiday_data and len(holiday_data) > 0:
+                    moyu_list = holiday_data
+            except:
+                pass
+            
+            # 构建 prompt
+            prompt_parts = [
+                f"现在是{date_info['date']} {date_info['weekday']}",
+                f"时间是{hour}点",
+            ]
+            
+            if moyu_list:
+                holiday_names = [h.get('name', '') for h in moyu_list if h.get('name')]
+                if holiday_names:
+                    prompt_parts.append(f"即将到来的节日：{', '.join(holiday_names[:2])}")
+            
+            if date_info.get('lunar_date'):
+                prompt_parts.append(f"农历{date_info['lunar_date']}")
+            
+            prompt = (
+                f"{', '.join(prompt_parts)}。"
+                f"请生成一句简短（15字以内）、温馨且富有创意的日报推送问候语。"
+                f"要求：1. 结合时间或节日 2. 亲切自然 3. 带上真寻的口吻 4. 只返回问候语文本，不要其他内容"
+            )
+            
+            # 尝试获取 LLM 提供商
+            try:
+                # 获取默认的聊天提供商
+                provider_id = await self.context.get_current_chat_provider_id()
+                if not provider_id:
+                    # 如果没有，尝试获取所有提供商中的第一个
+                    providers = self.context.provider_manager.get_all_providers()
+                    if providers:
+                        provider_id = list(providers.keys())[0]
+                
+                if provider_id:
+                    llm_resp = await self.context.llm_generate(
+                        chat_provider_id=provider_id,
+                        prompt=prompt,
+                    )
+                    
+                    if llm_resp and hasattr(llm_resp, 'completion_text'):
+                        greeting = llm_resp.completion_text.strip()
+                        # 清理可能的引号
+                        greeting = greeting.strip('"').strip("'").strip()
+                        if greeting and len(greeting) <= 50:
+                            logger.info(f"AI 生成问候语: {greeting}")
+                            return f"📰 {greeting}\n"
+            except Exception as e:
+                logger.debug(f"AI 生成问候语失败: {e}")
+            
+            # 回退到默认问候语
+            return self._get_default_greeting(hour, moyu_list)
+            
+        except Exception as e:
+            logger.warning(f"生成问候语出错: {e}")
+            return "📰 真寻日报来啦~\n"
+
+    def _get_default_greeting(self, hour: int, moyu_list: list) -> str:
+        """获取默认问候语（无 AI 时使用）"""
+        # 根据时间段选择问候语
+        greetings = {
+            "morning": ["早安！新的一天开始啦~", "早上好！今日份日报送达~", "早安！美好的一天从日报开始~"],
+            "noon": ["中午好！午间日报来啦~", "中午好~来看看今天的资讯吧~", "午安！休息时刻看看日报~"],
+            "afternoon": ["下午好！日报新鲜出炉~", "下午茶时间，看看日报吧~", "下午好！今日资讯已备好~"],
+            "evening": ["晚上好！晚间日报送达~", "晚上好~睡前看看今日资讯吧~", "晚安前的日报时间~"],
+        }
+        
+        # 判断时间段
+        if 5 <= hour < 11:
+            period_greetings = greetings["morning"]
+        elif 11 <= hour < 14:
+            period_greetings = greetings["noon"]
+        elif 14 <= hour < 18:
+            period_greetings = greetings["afternoon"]
+        else:
+            period_greetings = greetings["evening"]
+        
+        # 如果有节日信息，添加节日问候
+        if moyu_list and len(moyu_list) > 0:
+            holiday = moyu_list[0]
+            if holiday.get('name'):
+                days_left = holiday.get('days', '')
+                if days_left == '0':
+                    return f"📰 {holiday['name']}快乐！日报送上~\n"
+                elif days_left and int(days_left) <= 3:
+                    return f"📰 距离{holiday['name']}还有{days_left}天！日报来啦~\n"
+        
+        # 随机选择一个问候语
+        import random
+        return f"📰 {random.choice(period_greetings)}\n"
+
     async def _send_group_msg_via_api(self, group_id: str, image_b64: str) -> bool:
         """使用 OneBot API 直接发送群消息"""
         try:
+            # 生成个性化问候语
+            greeting_text = await self._generate_greeting_text()
+            
             # 通过 platform_manager 获取所有平台实例
             if not hasattr(self.context, 'platform_manager'):
                 logger.warning("context 没有 platform_manager 属性")
@@ -555,7 +663,7 @@ html, body {
                         "send_group_msg",
                         group_id=int(group_id),
                         message=[
-                            {"type": "text", "data": {"text": "📰 真寻日报来啦~\n"}},
+                            {"type": "text", "data": {"text": greeting_text}},
                             {"type": "image", "data": {"file": f"base64://{image_b64}"}}
                         ]
                     )

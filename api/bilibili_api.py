@@ -61,7 +61,8 @@ class BilibiliAPI:
             session = await self._get_session()
             async with session.get(self.url, headers=self.headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
                 response.raise_for_status()
-                data = await response.json()
+                # B站 API 可能返回非标准的 Content-Type，使用 content_type=None 忽略检查
+                data = await response.json(content_type=None)
                 
                 if data.get("code") == 0 and data.get("list"):
                     return self.parse_hotwords_data(data, max_count)
