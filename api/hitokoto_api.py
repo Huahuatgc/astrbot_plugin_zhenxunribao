@@ -6,9 +6,10 @@ import aiohttp
 from typing import Optional, Dict
 
 from astrbot.api import logger
+from .base_api import BaseAPI
 
 
-class HitokotoAPI:
+class HitokotoAPI(BaseAPI):
     """今日一言 API 处理类"""
     
     def __init__(self, token: str, session: Optional[aiohttp.ClientSession] = None):
@@ -17,27 +18,12 @@ class HitokotoAPI:
         
         Args:
             token: API token
-            session: 可选的 aiohttp.ClientSession，如果提供则复用，否则每次请求时创建
+            session: 可选的 aiohttp.ClientSession，如果提供则复用
         """
+        super().__init__(session)
         self.url = "https://v3.alapi.cn/api/hitokoto"
         self.token = token
         self.headers = {"Content-Type": "application/json"}
-        self._session = session
-        self._own_session = False
-    
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """获取session，如果已有则复用，否则创建新的"""
-        if self._session is None:
-            self._session = aiohttp.ClientSession()
-            self._own_session = True
-        return self._session
-    
-    async def _close_session(self):
-        """关闭自己创建的session"""
-        if self._own_session and self._session:
-            await self._session.close()
-            self._session = None
-            self._own_session = False
 
     def _get_default_hitokoto(self) -> Dict[str, str]:
         return {

@@ -7,9 +7,13 @@ from typing import List, Dict, Optional
 import re
 
 from astrbot.api import logger
+from .base_api import BaseAPI
+
+# 预编译正则表达式，避免循环内重复编译
+NUMBER_PREFIX_PATTERN = re.compile(r'^\d+[\.、]\s*')
 
 
-class ZaobaoAPI:
+class ZaobaoAPI(BaseAPI):
     """早报 API 处理类"""
     
     def __init__(self, token: str, session: Optional[aiohttp.ClientSession] = None):
@@ -18,27 +22,12 @@ class ZaobaoAPI:
         
         Args:
             token: API token
-            session: 可选的 aiohttp.ClientSession，如果提供则复用，否则每次请求时创建
+            session: 可选的 aiohttp.ClientSession，如果提供则复用
         """
+        super().__init__(session)
         self.token = token
         self.url = "https://v3.alapi.cn/api/zaobao"
         self.headers = {"Content-Type": "application/json"}
-        self._session = session
-        self._own_session = False
-    
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """获取session，如果已有则复用，否则创建新的"""
-        if self._session is None:
-            self._session = aiohttp.ClientSession()
-            self._own_session = True
-        return self._session
-    
-    async def _close_session(self):
-        """关闭自己创建的session"""
-        if self._own_session and self._session:
-            await self._session.close()
-            self._session = None
-            self._own_session = False
     
     async def get_zaobao_async(self) -> Optional[Dict]:
         """
@@ -93,8 +82,8 @@ class ZaobaoAPI:
                         if isinstance(item, str):
                             # 移除开头的编号（如 "1."、"1、"等）
                             cleaned = item.strip()
-                            # 移除开头的数字、点号、顿号等
-                            cleaned = re.sub(r'^\d+[\.、]\s*', '', cleaned)
+                            # 使用预编译的正则表达式
+                            cleaned = NUMBER_PREFIX_PATTERN.sub('', cleaned)
                             if cleaned:
                                 news_list.append(cleaned)
                         

@@ -12,7 +12,7 @@ from playwright.async_api import async_playwright
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import MessageChain, filter, AstrMessageEvent
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, register, StarTools
 
 from .api.bgm_api import BGMAPI
 from .api.bilibili_api import BilibiliAPI
@@ -84,12 +84,12 @@ class ZhenxunReportPlugin(Star):
 
     def _reinit_api_sessions(self):
         """重新初始化 API 客户端的 session"""
-        self.bgm_api._session = self.http_session
-        self.bilibili_api._session = self.http_session
-        self.hitokoto_api._session = self.http_session
-        self.holiday_api._session = self.http_session
-        self.ithome_rss._session = self.http_session
-        self.zaobao_api._session = self.http_session
+        self.bgm_api.set_session(self.http_session)
+        self.bilibili_api.set_session(self.http_session)
+        self.hitokoto_api.set_session(self.http_session)
+        self.holiday_api.set_session(self.http_session)
+        self.ithome_rss.set_session(self.http_session)
+        self.zaobao_api.set_session(self.http_session)
 
     @filter.command("日报")
     async def daily_news(self, event: AstrMessageEvent):
@@ -492,9 +492,11 @@ html, body {
     def _load_group_mapping(self):
         """从文件加载群号到 unified_msg_origin 的映射"""
         try:
-            mapping_file = os.path.join(self.plugin_dir, "group_mapping.json")
+            import json
+            # 使用标准数据目录，避免写入插件源码目录
+            data_dir = StarTools.get_data_dir("astrbot_plugin_zhenxunribao")
+            mapping_file = os.path.join(data_dir, "group_mapping.json")
             if os.path.exists(mapping_file):
-                import json
                 with open(mapping_file, 'r', encoding='utf-8') as f:
                     self.group_umo_mapping = json.load(f)
                 logger.info(f"已加载 {len(self.group_umo_mapping)} 个群组映射")
@@ -506,7 +508,9 @@ html, body {
         """保存群号到 unified_msg_origin 的映射到文件"""
         try:
             import json
-            mapping_file = os.path.join(self.plugin_dir, "group_mapping.json")
+            # 使用标准数据目录，避免写入插件源码目录
+            data_dir = StarTools.get_data_dir("astrbot_plugin_zhenxunribao")
+            mapping_file = os.path.join(data_dir, "group_mapping.json")
             with open(mapping_file, 'w', encoding='utf-8') as f:
                 json.dump(self.group_umo_mapping, f, ensure_ascii=False, indent=2)
             logger.debug(f"已保存 {len(self.group_umo_mapping)} 个群组映射")

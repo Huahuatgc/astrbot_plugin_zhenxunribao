@@ -7,9 +7,10 @@ from datetime import datetime, date
 from typing import List, Dict, Optional
 
 from astrbot.api import logger
+from .base_api import BaseAPI
 
 
-class HolidayAPI:
+class HolidayAPI(BaseAPI):
     """节假日 API 处理类"""
     
     def __init__(self, token: str, session: Optional[aiohttp.ClientSession] = None, year: Optional[int] = None):
@@ -18,29 +19,14 @@ class HolidayAPI:
         
         Args:
             token: API token
-            session: 可选的 aiohttp.ClientSession，如果提供则复用，否则每次请求时创建
+            session: 可选的 aiohttp.ClientSession，如果提供则复用
             year: 指定年份，None 则使用当前年份
         """
+        super().__init__(session)
         self.token = token
         self.url = "https://v3.alapi.cn/api/holiday"
         self.headers = {"Content-Type": "application/json"}
         self.year = year or datetime.now().year
-        self._session = session
-        self._own_session = False
-    
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """获取session，如果已有则复用，否则创建新的"""
-        if self._session is None:
-            self._session = aiohttp.ClientSession()
-            self._own_session = True
-        return self._session
-    
-    async def _close_session(self):
-        """关闭自己创建的session"""
-        if self._own_session and self._session:
-            await self._session.close()
-            self._session = None
-            self._own_session = False
     
     async def get_holidays_async(self) -> Optional[Dict]:
         """
