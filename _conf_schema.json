@@ -45,7 +45,7 @@
   "scheduled_push_groups": {
     "description": "定时推送目标群组列表",
     "type": "list",
-    "hint": "群组ID列表，格式：[\"aiocqhttp:GroupMessage:123456789\", ...]，使用 unified_msg_origin 格式。在群内发送 /日报 后查看日志可获取正确的格式",
+    "hint": "直接填写群号即可，如：[\"957880653\", \"123456789\"]。也支持 unified_msg_origin 格式",
     "default": []
   }
 }

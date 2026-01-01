@@ -386,7 +386,7 @@ html, body {
                 await asyncio.sleep(3600)
 
     async def _push_daily_to_groups(self, group_list: list):
-        """向指定群组推送日报"""
+        """向指定群组推送日报 - 支持纯群号配置"""
         image_path = None
         try:
             logger.info(f"开始生成日报图片，目标群组数量: {len(group_list)}")
@@ -398,18 +398,29 @@ html, body {
                 return
             
             logger.info(f"日报图片生成成功: {image_path}")
-            message_chain = MessageChain().file_image(image_path)
 
             success_count = 0
             for group_id in group_list:
                 try:
-                    logger.debug(f"正在向群组 {group_id} 发送日报...")
-                    result = await self.context.send_message(group_id, message_chain)
+                    # 清理群号格式，支持纯数字和 unified_msg_origin 两种格式
+                    clean_group_id = self._extract_group_id(group_id)
+                    logger.debug(f"正在向群组 {clean_group_id} 发送日报...")
+                    
+                    # 尝试使用底层 API 发送
+                    result = await self._send_image_to_group(clean_group_id, image_path)
                     if result:
-                        logger.info(f"成功推送日报到群组: {group_id}")
+                        logger.info(f"成功推送日报到群组: {clean_group_id}")
                         success_count += 1
                     else:
-                        logger.warning(f"推送失败，send_message 返回 None，群组: {group_id}，请检查 unified_msg_origin 格式是否正确")
+                        # 回退到 context.send_message
+                        logger.debug(f"底层 API 发送失败，尝试使用 context.send_message...")
+                        message_chain = MessageChain().file_image(image_path)
+                        fallback_result = await self.context.send_message(group_id, message_chain)
+                        if fallback_result:
+                            logger.info(f"成功推送日报到群组(回退方式): {group_id}")
+                            success_count += 1
+                        else:
+                            logger.warning(f"推送失败，群组: {group_id}")
                 except Exception as e:
                     logger.error(f"推送到群组 {group_id} 时出错: {e}", exc_info=True)
 
@@ -425,6 +436,86 @@ html, body {
                     logger.debug(f"已清理临时图片文件: {image_path}")
                 except Exception as e:
                     logger.warning(f"清理临时图片文件失败: {e}")
+
+    def _extract_group_id(self, group_id_str: str) -> str:
+        """从配置中提取纯群号，支持多种格式"""
+        group_id_str = str(group_id_str).strip()
+        
+        # 如果是纯数字，直接返回
+        if group_id_str.isdigit():
+            return group_id_str
+        
+        # 尝试从 unified_msg_origin 格式中提取群号
+        # 格式如: aiocqhttp:GroupMessage:123456789 或 default:GroupMessage:xxx_123456789
+        if ':' in group_id_str:
+            parts = group_id_str.split(':')
+            if len(parts) >= 3:
+                last_part = parts[-1]
+                # 处理可能的 botid_groupid 格式
+                if '_' in last_part:
+                    return last_part.split('_')[-1]
+                return last_part
+        
+        return group_id_str
+
+    async def _send_image_to_group(self, group_id: str, image_path: str) -> bool:
+        """使用底层 API 发送图片到群组"""
+        try:
+            # 获取所有平台适配器
+            platforms = self.context.get_all_platform_adapters()
+            if not platforms:
+                logger.warning("没有可用的平台适配器")
+                return False
+            
+            logger.debug(f"发现 {len(platforms)} 个平台适配器")
+            
+            # 将图片转为 base64
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            image_b64 = base64.b64encode(image_data).decode()
+            
+            # 遍历所有平台尝试发送
+            for platform in platforms:
+                try:
+                    # 获取平台的 client/bot 实例
+                    client = getattr(platform, 'client', None) or getattr(platform, 'bot', None)
+                    if not client:
+                        continue
+                    
+                    # 尝试调用 call_action 发送群消息
+                    call_action = getattr(client, 'call_action', None)
+                    if not call_action:
+                        # 尝试从 api 属性获取
+                        api = getattr(client, 'api', None)
+                        if api:
+                            call_action = getattr(api, 'call_action', None)
+                    
+                    if call_action:
+                        await call_action(
+                            "send_group_msg",
+                            group_id=int(group_id),
+                            message=[
+                                {"type": "text", "data": {"text": "📰 真寻日报来啦~\n"}},
+                                {"type": "image", "data": {"file": f"base64://{image_b64}"}}
+                            ]
+                        )
+                        logger.info(f"通过平台适配器成功发送图片到群 {group_id}")
+                        return True
+                        
+                except Exception as e:
+                    error_msg = str(e)
+                    if "retcode=1200" in error_msg:
+                        logger.debug(f"平台不在群 {group_id} 中，继续尝试其他平台")
+                    else:
+                        logger.debug(f"平台发送失败: {e}")
+                    continue
+            
+            logger.warning(f"所有平台适配器都无法发送到群 {group_id}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"发送图片到群 {group_id} 失败: {e}")
+            return False
 
     async def terminate(self):
         logger.info("真寻日报插件正在卸载...")
