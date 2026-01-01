@@ -46,6 +46,10 @@ class ZhenxunReportPlugin(Star):
 
         self.push_task = None
         
+        # 群号到 unified_msg_origin 的映射，用于定时推送
+        self.group_umo_mapping = {}
+        self._load_group_mapping()
+        
         # 启动定时推送任务（使用延迟启动，等待平台适配器就绪）
         if config.get("enable_scheduled_push", False):
             asyncio.create_task(self._delayed_start_scheduler())
@@ -66,8 +70,16 @@ class ZhenxunReportPlugin(Star):
     @filter.command("日报")
     async def daily_news(self, event: AstrMessageEvent):
         """生成日报"""
-        # 输出 unified_msg_origin 供用户配置定时推送使用
-        logger.info(f"日报命令触发，unified_msg_origin: {event.unified_msg_origin}")
+        # 输出 unified_msg_origin 并自动保存映射
+        umo = event.unified_msg_origin
+        logger.info(f"日报命令触发，unified_msg_origin: {umo}")
+        
+        # 自动学习群组的 unified_msg_origin
+        group_id = self._extract_group_id(umo)
+        if group_id and group_id not in self.group_umo_mapping:
+            self.group_umo_mapping[group_id] = umo
+            self._save_group_mapping()
+            logger.info(f"已学习群组 {group_id} 的 unified_msg_origin: {umo}")
         
         image_path = None
         try:
@@ -392,7 +404,7 @@ html, body {
                 await asyncio.sleep(3600)
 
     async def _push_daily_to_groups(self, group_list: list):
-        """向指定群组推送日报 - 支持纯群号配置"""
+        """向指定群组推送日报 - 使用已学习的 unified_msg_origin"""
         image_path = None
         try:
             logger.info(f"开始生成日报图片，目标群组数量: {len(group_list)}")
@@ -404,37 +416,44 @@ html, body {
                 return
             
             logger.info(f"日报图片生成成功: {image_path}")
+            message_chain = MessageChain().file_image(image_path)
 
             success_count = 0
+            failed_groups = []
+            
             for group_id in group_list:
                 try:
-                    # 清理群号格式，支持纯数字和 unified_msg_origin 两种格式
+                    # 提取纯群号
                     clean_group_id = self._extract_group_id(group_id)
                     logger.debug(f"正在向群组 {clean_group_id} 发送日报...")
                     
-                    # 尝试使用底层 API 发送
-                    result = await self._send_image_to_group(clean_group_id, image_path)
-                    if result:
-                        logger.info(f"成功推送日报到群组: {clean_group_id}")
-                        success_count += 1
-                    else:
-                        # 回退到 context.send_message
-                        logger.debug(f"底层 API 发送失败，尝试使用 context.send_message...")
-                        message_chain = MessageChain().file_image(image_path)
-                        fallback_result = await self.context.send_message(group_id, message_chain)
-                        if fallback_result:
-                            logger.info(f"成功推送日报到群组(回退方式): {group_id}")
+                    # 首先尝试从映射中获取已学习的 unified_msg_origin
+                    umo = self.group_umo_mapping.get(clean_group_id)
+                    
+                    if umo:
+                        # 使用已学习的 unified_msg_origin 发送
+                        logger.debug(f"找到群组 {clean_group_id} 的映射: {umo}")
+                        result = await self.context.send_message(umo, message_chain)
+                        if result:
+                            logger.info(f"成功推送日报到群组: {clean_group_id}")
                             success_count += 1
+                            continue
                         else:
-                            logger.warning(f"推送失败，群组: {group_id}")
+                            logger.warning(f"使用映射发送失败，群组: {clean_group_id}")
+                    else:
+                        logger.warning(f"未找到群组 {clean_group_id} 的映射，请先在该群发送 /日报 命令")
+                        failed_groups.append(clean_group_id)
+                    
                 except Exception as e:
                     logger.error(f"推送到群组 {group_id} 时出错: {e}", exc_info=True)
 
             logger.info(f"定时推送完成，成功: {success_count}/{len(group_list)}")
+            
+            if failed_groups:
+                logger.warning(f"以下群组未找到映射，请在这些群内先发送 /日报 命令: {failed_groups}")
 
         except Exception as e:
             logger.error(f"定时推送日报失败: {e}", exc_info=True)
-        finally:
             # 清理临时文件
             if image_path and os.path.exists(image_path):
                 try:
@@ -442,6 +461,30 @@ html, body {
                     logger.debug(f"已清理临时图片文件: {image_path}")
                 except Exception as e:
                     logger.warning(f"清理临时图片文件失败: {e}")
+
+    def _load_group_mapping(self):
+        """从文件加载群号到 unified_msg_origin 的映射"""
+        try:
+            mapping_file = os.path.join(self.plugin_dir, "group_mapping.json")
+            if os.path.exists(mapping_file):
+                import json
+                with open(mapping_file, 'r', encoding='utf-8') as f:
+                    self.group_umo_mapping = json.load(f)
+                logger.info(f"已加载 {len(self.group_umo_mapping)} 个群组映射")
+        except Exception as e:
+            logger.warning(f"加载群组映射失败: {e}")
+            self.group_umo_mapping = {}
+
+    def _save_group_mapping(self):
+        """保存群号到 unified_msg_origin 的映射到文件"""
+        try:
+            import json
+            mapping_file = os.path.join(self.plugin_dir, "group_mapping.json")
+            with open(mapping_file, 'w', encoding='utf-8') as f:
+                json.dump(self.group_umo_mapping, f, ensure_ascii=False, indent=2)
+            logger.debug(f"已保存 {len(self.group_umo_mapping)} 个群组映射")
+        except Exception as e:
+            logger.warning(f"保存群组映射失败: {e}")
 
     def _extract_group_id(self, group_id_str: str) -> str:
         """从配置中提取纯群号，支持多种格式"""
@@ -464,64 +507,6 @@ html, body {
         
         return group_id_str
 
-    async def _send_image_to_group(self, group_id: str, image_path: str) -> bool:
-        """使用底层 API 发送图片到群组"""
-        try:
-            # 获取所有平台适配器
-            platforms = self.context.get_all_platform_adapters()
-            if not platforms:
-                logger.warning("没有可用的平台适配器")
-                return False
-            
-            logger.debug(f"发现 {len(platforms)} 个平台适配器")
-            
-            # 将图片转为 base64
-            with open(image_path, 'rb') as f:
-                image_data = f.read()
-            image_b64 = base64.b64encode(image_data).decode()
-            
-            # 遍历所有平台尝试发送
-            for platform in platforms:
-                try:
-                    # 获取平台的 client/bot 实例
-                    client = getattr(platform, 'client', None) or getattr(platform, 'bot', None)
-                    if not client:
-                        continue
-                    
-                    # 尝试调用 call_action 发送群消息
-                    call_action = getattr(client, 'call_action', None)
-                    if not call_action:
-                        # 尝试从 api 属性获取
-                        api = getattr(client, 'api', None)
-                        if api:
-                            call_action = getattr(api, 'call_action', None)
-                    
-                    if call_action:
-                        await call_action(
-                            "send_group_msg",
-                            group_id=int(group_id),
-                            message=[
-                                {"type": "text", "data": {"text": "📰 真寻日报来啦~\n"}},
-                                {"type": "image", "data": {"file": f"base64://{image_b64}"}}
-                            ]
-                        )
-                        logger.info(f"通过平台适配器成功发送图片到群 {group_id}")
-                        return True
-                        
-                except Exception as e:
-                    error_msg = str(e)
-                    if "retcode=1200" in error_msg:
-                        logger.debug(f"平台不在群 {group_id} 中，继续尝试其他平台")
-                    else:
-                        logger.debug(f"平台发送失败: {e}")
-                    continue
-            
-            logger.warning(f"所有平台适配器都无法发送到群 {group_id}")
-            return False
-            
-        except Exception as e:
-            logger.error(f"发送图片到群 {group_id} 失败: {e}")
-            return False
 
     async def terminate(self):
         logger.info("真寻日报插件正在卸载...")
