@@ -45,15 +45,24 @@ class ZhenxunReportPlugin(Star):
         self.zaobao_api = ZaobaoAPI(token=api_token, session=self.http_session)
 
         self.push_task = None
-        if config.get("enable_scheduled_push", False):
-            self.push_task = asyncio.create_task(self._scheduled_push_task())
-            logger.info("定时推送任务已启动")
 
         logger.info("真寻日报插件已加载")
+
+    @filter.on_astrbot_loaded()
+    async def on_astrbot_loaded(self):
+        """AstrBot 初始化完成后启动定时推送任务"""
+        if self.config.get("enable_scheduled_push", False):
+            # 延迟等待平台适配器完全就绪
+            await asyncio.sleep(10)
+            self.push_task = asyncio.create_task(self._scheduled_push_task())
+            logger.info("定时推送任务已启动（延迟初始化）")
 
     @filter.command("日报")
     async def daily_news(self, event: AstrMessageEvent):
         """生成日报"""
+        # 输出 unified_msg_origin 供用户配置定时推送使用
+        logger.info(f"日报命令触发，unified_msg_origin: {event.unified_msg_origin}")
+        
         image_path = None
         try:
             image_path = await self._generate_daily_image()
@@ -69,6 +78,17 @@ class ZhenxunReportPlugin(Star):
                     logger.debug(f"已清理临时图片文件: {image_path}")
                 except Exception as e:
                     logger.warning(f"清理临时图片文件失败: {e}")
+
+    @filter.command("日报群组ID")
+    async def get_group_id(self, event: AstrMessageEvent):
+        """获取当前会话的群组ID，用于配置定时推送"""
+        umo = event.unified_msg_origin
+        logger.info(f"获取群组ID，unified_msg_origin: {umo}")
+        yield event.plain_result(
+            f"📋 当前会话信息：\n"
+            f"unified_msg_origin: {umo}\n\n"
+            f"💡 请将此值添加到插件配置的「定时推送目标群组列表」中"
+        )
 
     async def _generate_daily_image(self) -> str:
         logger.info("开始生成日报")
@@ -366,32 +386,45 @@ html, body {
                 await asyncio.sleep(3600)
 
     async def _push_daily_to_groups(self, group_list: list):
+        """向指定群组推送日报"""
+        image_path = None
         try:
+            logger.info(f"开始生成日报图片，目标群组数量: {len(group_list)}")
             image_path = await self._generate_daily_image()
+            
+            # 验证图片文件存在
+            if not image_path or not os.path.exists(image_path):
+                logger.error(f"日报图片生成失败或文件不存在: {image_path}")
+                return
+            
+            logger.info(f"日报图片生成成功: {image_path}")
             message_chain = MessageChain().file_image(image_path)
 
             success_count = 0
             for group_id in group_list:
                 try:
+                    logger.debug(f"正在向群组 {group_id} 发送日报...")
                     result = await self.context.send_message(group_id, message_chain)
                     if result:
                         logger.info(f"成功推送日报到群组: {group_id}")
                         success_count += 1
                     else:
-                        logger.warning(f"推送失败，未找到群组: {group_id}")
+                        logger.warning(f"推送失败，send_message 返回 None，群组: {group_id}，请检查 unified_msg_origin 格式是否正确")
                 except Exception as e:
                     logger.error(f"推送到群组 {group_id} 时出错: {e}", exc_info=True)
 
             logger.info(f"定时推送完成，成功: {success_count}/{len(group_list)}")
 
-            try:
-                if os.path.exists(image_path):
-                    os.remove(image_path)
-            except Exception as e:
-                logger.warning(f"清理临时图片文件失败: {e}")
-
         except Exception as e:
             logger.error(f"定时推送日报失败: {e}", exc_info=True)
+        finally:
+            # 清理临时文件
+            if image_path and os.path.exists(image_path):
+                try:
+                    os.remove(image_path)
+                    logger.debug(f"已清理临时图片文件: {image_path}")
+                except Exception as e:
+                    logger.warning(f"清理临时图片文件失败: {e}")
 
     async def terminate(self):
         logger.info("真寻日报插件正在卸载...")

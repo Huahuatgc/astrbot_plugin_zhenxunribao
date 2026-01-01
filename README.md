@@ -48,7 +48,7 @@ playwright install chromium
 | `max_holiday_count` | int | `3` | 摸鱼日历最大显示数量，建议设置为3-5之间 |
 | `enable_scheduled_push` | bool | `false` | 是否启用定时推送，启用后会在指定时间自动推送日报到配置的群组 |
 | `scheduled_push_time` | str | `"08:00"` | 定时推送时间，HH:MM格式（24小时制），例如：`08:00` 表示每天早上8点 |
-| `scheduled_push_groups` | list | `[]` | 定时推送目标群组列表，格式：`["aiocqhttp:group:123456789", ...]`。可以通过在群内发送 `/日报` 后查看日志获取群组ID |
+| `scheduled_push_groups` | list | `[]` | 定时推送目标群组列表，格式：`["aiocqhttp:GroupMessage:123456789", ...]`。使用 `/日报群组ID` 命令获取正确的格式 |
 
 ## 🎁 使用
 
@@ -61,12 +61,22 @@ playwright install chromium
 
 机器人将自动生成并发送当日日报图片。
 
+### 获取群组ID
+
+在需要配置定时推送的群内发送：
+```
+/日报群组ID
+```
+
+机器人会返回当前会话的 `unified_msg_origin`，将其添加到配置的「定时推送目标群组列表」中即可。
+
 ### 定时推送
 
 1. 在插件配置中启用 `enable_scheduled_push`
 2. 设置 `scheduled_push_time`（推送时间，默认 08:00）
-3. 配置 `scheduled_push_groups`（目标群组列表）
-4. 保存配置，插件将自动在指定时间推送日报
+3. 在目标群内发送 `/日报群组ID` 获取群组标识
+4. 将群组标识添加到 `scheduled_push_groups` 列表中
+5. 保存配置，插件将自动在指定时间推送日报
 
 ## 📋 依赖
 
