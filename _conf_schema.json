@@ -47,5 +47,11 @@
     "type": "list",
     "hint": "直接填写群号即可，如：[\"957880653\", \"123456789\"]。也支持 unified_msg_origin 格式",
     "default": []
+  },
+  "enable_ai_greeting": {
+    "description": "是否启用 AI 生成个性化问候语",
+    "type": "bool",
+    "hint": "启用后会调用 LLM 生成创意问候语，需要配置好大模型服务。关闭则使用预设的问候语",
+    "default": false
   }
 }

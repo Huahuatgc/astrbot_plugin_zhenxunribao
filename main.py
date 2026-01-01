@@ -528,6 +528,10 @@ html, body {
             except:
                 pass
             
+            # 检查是否启用 AI 生成问候语
+            if not self.config.get("enable_ai_greeting", False):
+                return self._get_default_greeting(hour, moyu_list)
+            
             # 构建 prompt
             prompt_parts = [
                 f"现在是{date_info['date']} {date_info['weekday']}",
