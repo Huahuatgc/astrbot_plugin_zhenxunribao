@@ -404,7 +404,7 @@ html, body {
                 await asyncio.sleep(3600)
 
     async def _push_daily_to_groups(self, group_list: list):
-        """向指定群组推送日报 - 使用已学习的 unified_msg_origin"""
+        """向指定群组推送日报 - 直接使用 OneBot API"""
         image_path = None
         try:
             logger.info(f"开始生成日报图片，目标群组数量: {len(group_list)}")
@@ -416,10 +416,13 @@ html, body {
                 return
             
             logger.info(f"日报图片生成成功: {image_path}")
-            message_chain = MessageChain().file_image(image_path)
+            
+            # 将图片转为 base64
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
+            image_b64 = base64.b64encode(image_data).decode()
 
             success_count = 0
-            failed_groups = []
             
             for group_id in group_list:
                 try:
@@ -427,30 +430,30 @@ html, body {
                     clean_group_id = self._extract_group_id(group_id)
                     logger.debug(f"正在向群组 {clean_group_id} 发送日报...")
                     
-                    # 首先尝试从映射中获取已学习的 unified_msg_origin
-                    umo = self.group_umo_mapping.get(clean_group_id)
-                    
-                    if umo:
-                        # 使用已学习的 unified_msg_origin 发送
-                        logger.debug(f"找到群组 {clean_group_id} 的映射: {umo}")
-                        result = await self.context.send_message(umo, message_chain)
-                        if result:
-                            logger.info(f"成功推送日报到群组: {clean_group_id}")
-                            success_count += 1
-                            continue
-                        else:
-                            logger.warning(f"使用映射发送失败，群组: {clean_group_id}")
+                    # 使用底层 API 直接发送
+                    result = await self._send_group_msg_via_api(clean_group_id, image_b64)
+                    if result:
+                        logger.info(f"成功推送日报到群组: {clean_group_id}")
+                        success_count += 1
                     else:
-                        logger.warning(f"未找到群组 {clean_group_id} 的映射，请先在该群发送 /日报 命令")
-                        failed_groups.append(clean_group_id)
+                        # 回退：尝试使用已学习的映射
+                        umo = self.group_umo_mapping.get(clean_group_id)
+                        if umo:
+                            logger.debug(f"尝试使用映射发送: {umo}")
+                            message_chain = MessageChain().file_image(image_path)
+                            fallback_result = await self.context.send_message(umo, message_chain)
+                            if fallback_result:
+                                logger.info(f"成功推送日报到群组(映射方式): {clean_group_id}")
+                                success_count += 1
+                            else:
+                                logger.warning(f"推送失败，群组: {clean_group_id}")
+                        else:
+                            logger.warning(f"推送失败，群组: {clean_group_id}")
                     
                 except Exception as e:
                     logger.error(f"推送到群组 {group_id} 时出错: {e}", exc_info=True)
 
             logger.info(f"定时推送完成，成功: {success_count}/{len(group_list)}")
-            
-            if failed_groups:
-                logger.warning(f"以下群组未找到映射，请在这些群内先发送 /日报 命令: {failed_groups}")
 
         except Exception as e:
             logger.error(f"定时推送日报失败: {e}", exc_info=True)
@@ -507,6 +510,72 @@ html, body {
         
         return group_id_str
 
+    async def _send_group_msg_via_api(self, group_id: str, image_b64: str) -> bool:
+        """使用 OneBot API 直接发送群消息"""
+        try:
+            # 通过 platform_manager 获取所有平台实例
+            if not hasattr(self.context, 'platform_manager'):
+                logger.warning("context 没有 platform_manager 属性")
+                return False
+            
+            platforms = self.context.platform_manager.get_insts()
+            if not platforms:
+                logger.warning("没有可用的平台实例")
+                return False
+            
+            logger.debug(f"发现 {len(platforms)} 个平台实例")
+            
+            # 遍历所有平台尝试发送
+            for platform in platforms:
+                try:
+                    # 获取 bot 客户端
+                    bot_client = None
+                    if hasattr(platform, 'get_client'):
+                        bot_client = platform.get_client()
+                    elif hasattr(platform, 'client'):
+                        bot_client = platform.client
+                    elif hasattr(platform, 'bot'):
+                        bot_client = platform.bot
+                    
+                    if not bot_client:
+                        continue
+                    
+                    # 获取 call_action 方法
+                    call_action = None
+                    if hasattr(bot_client, 'call_action'):
+                        call_action = bot_client.call_action
+                    elif hasattr(bot_client, 'api') and hasattr(bot_client.api, 'call_action'):
+                        call_action = bot_client.api.call_action
+                    
+                    if not call_action:
+                        continue
+                    
+                    # 调用 OneBot API 发送群消息
+                    await call_action(
+                        "send_group_msg",
+                        group_id=int(group_id),
+                        message=[
+                            {"type": "text", "data": {"text": "📰 真寻日报来啦~\n"}},
+                            {"type": "image", "data": {"file": f"base64://{image_b64}"}}
+                        ]
+                    )
+                    logger.info(f"通过 OneBot API 成功发送到群 {group_id}")
+                    return True
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    if "retcode=1200" in error_msg:
+                        logger.debug(f"平台不在群 {group_id} 中，继续尝试其他平台")
+                    else:
+                        logger.debug(f"平台发送失败: {e}")
+                    continue
+            
+            logger.warning(f"所有平台都无法发送到群 {group_id}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"发送群消息失败: {e}")
+            return False
 
     async def terminate(self):
         logger.info("真寻日报插件正在卸载...")
