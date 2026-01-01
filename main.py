@@ -45,17 +45,23 @@ class ZhenxunReportPlugin(Star):
         self.zaobao_api = ZaobaoAPI(token=api_token, session=self.http_session)
 
         self.push_task = None
+        
+        # 启动定时推送任务（使用延迟启动，等待平台适配器就绪）
+        if config.get("enable_scheduled_push", False):
+            asyncio.create_task(self._delayed_start_scheduler())
+            logger.info("定时推送任务正在初始化...")
 
         logger.info("真寻日报插件已加载")
 
-    @filter.on_astrbot_loaded()
-    async def on_astrbot_loaded(self):
-        """AstrBot 初始化完成后启动定时推送任务"""
-        if self.config.get("enable_scheduled_push", False):
-            # 延迟等待平台适配器完全就绪
-            await asyncio.sleep(10)
+    async def _delayed_start_scheduler(self):
+        """延迟启动定时推送调度器"""
+        try:
+            # 等待 15 秒让系统完全初始化
+            await asyncio.sleep(15)
             self.push_task = asyncio.create_task(self._scheduled_push_task())
             logger.info("定时推送任务已启动（延迟初始化）")
+        except Exception as e:
+            logger.error(f"启动定时推送任务失败: {e}", exc_info=True)
 
     @filter.command("日报")
     async def daily_news(self, event: AstrMessageEvent):
