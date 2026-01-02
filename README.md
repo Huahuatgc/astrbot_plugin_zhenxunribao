@@ -1,4 +1,4 @@
-# 真寻日报 (astrbot_plugin_ripan_daily)
+# 真寻日报 (astrbot_plugin_zhenxunribao)
 
 ✨ 基于 AstrBot 的一个插件 ✨
 
@@ -15,7 +15,7 @@
 ### 通过 AstrBot 插件市场安装（推荐）
 
 1. 在 AstrBot WebUI 中打开插件市场
-2. 搜索 `astrbot_plugin_ripan_daily` 或 `真寻日报`
+2. 搜索 `astrbot_plugin_zhenxunribao` 或 `真寻日报`
 3. 点击安装
 
 ### 手动安装
@@ -23,12 +23,12 @@
 1. 克隆仓库到 AstrBot 插件目录：
 ```bash
 cd AstrBot/data/plugins
-git clone https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao.git astrbot_plugin_ripan_daily
+git clone https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao.git astrbot_plugin_zhenxunribao
 ```
 
 2. 安装依赖：
 ```bash
-cd astrbot_plugin_ripan_daily
+cd astrbot_plugin_zhenxunribao
 pip install -r requirements.txt
 playwright install chromium
 ```
