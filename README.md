@@ -46,6 +46,7 @@ playwright install chromium
 | `max_news_count` | int | `5` | 新闻最大显示数量，建议设置为5-10之间 |
 | `max_hotword_count` | int | `4` | B站热点最大显示数量，建议设置为4-8之间 |
 | `max_holiday_count` | int | `3` | 摸鱼日历最大显示数量，建议设置为3-5之间 |
+| `render_dpr` | int | `5` | 渲染清晰度（DPR），越大越清晰但图片更大更慢，建议 3-6 |
 | `enable_scheduled_push` | bool | `false` | 是否启用定时推送，启用后会在指定时间自动推送日报到配置的群组 |
 | `scheduled_push_time` | str | `"08:00"` | 定时推送时间，HH:MM格式（24小时制），例如：`08:00` 表示每天早上8点 |
 | `scheduled_push_groups` | list | `[]` | 定时推送目标群组列表，直接填写群号即可，如：`["957880653", "123456789"]` |
@@ -87,6 +88,11 @@ playwright install chromium
 ```bash
 playwright install chromium
 ```
+
+## 🖋 字体说明
+
+本插件渲染日报图片时使用了 **HarmonyOS Sans** 字体文件以提升跨系统一致性与清晰度。
+如需二次分发/商用，请同时遵守字体授权条款，并在你的软件/项目中保留对 HarmonyOS Sans 的使用声明。
 
 ## ⚠️ 注意事项
 

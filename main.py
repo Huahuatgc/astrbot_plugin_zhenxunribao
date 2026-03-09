@@ -23,7 +23,7 @@ from .api.ithome_rss import ITHomeRSS
 from .api.zaobao_api import ZaobaoAPI
 
 
-@register("astrbot_plugin_zhenxunribao", "Huahuatgc", "小真寻记者为你献上今日报道！", "1.0.0", "https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao")
+@register("astrbot_plugin_zhenxunribao", "Huahuatgc", "小真寻记者为你献上今日报道！", "1.1.0", "https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao")
 class ZhenxunReportPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -304,7 +304,12 @@ html, body {
     async def _render_html_with_playwright(
         self, html_content: str, output_path: str | None = None
     ) -> str:
+        """Render HTML to PNG using Playwright.
+
+        提升清晰度的关键：使用 BrowserContext 的 device_scale_factor (DPR)。
+        """
         temp_html_path = None
+        context = None
         try:
             temp_dir = tempfile.gettempdir()
             temp_html_path = os.path.join(
@@ -317,12 +322,21 @@ html, body {
             if output_path is None:
                 output_path = temp_html_path.replace(".html", ".png")
 
+            # DPR (device scale factor): 越大越清晰，但图片更大、渲染更慢
+            dpr = int(self.config.get("render_dpr", 4))
+            dpr = max(1, min(dpr, 6))
+
             async with async_playwright() as p:
                 logger.info("启动Playwright浏览器...")
                 browser = await p.chromium.launch(headless=True)
-                context = None
                 try:
-                    page = await browser.new_page()
+                    # 用 context 设置 DPR 提升截图清晰度
+                    context = await browser.new_context(
+                        viewport={"width": 1156, "height": 1000},
+                        device_scale_factor=dpr,
+                    )
+                    page = await context.new_page()
+
                     file_url = f"file://{pathname2url(temp_html_path)}"
                     await page.goto(file_url, wait_until="networkidle")
                     await page.wait_for_timeout(2000)
@@ -335,44 +349,40 @@ html, body {
                     if not box:
                         raise Exception("无法获取.wrapper元素的bounding box")
 
-                    wrapper_x = int(box["x"])
-                    wrapper_y = int(box["y"])
                     wrapper_width = int(box["width"])
                     wrapper_height = int(box["height"])
 
-                    # 动态设置viewport高度，添加一些余量
+                    # 动态设置 viewport，避免超长内容截图不完整（留余量）
                     viewport_height = max(int(wrapper_height * 1.2), 1000)
                     viewport_width = 1156
-
-                    # 重新设置viewport以匹配实际内容
-                    await page.set_viewport_size({"width": viewport_width, "height": viewport_height})
-
-                    logger.info(
-                        f"Wrapper位置: x={wrapper_x}, y={wrapper_y}, "
-                        f"width={wrapper_width}, height={wrapper_height}, "
-                        f"viewport: {viewport_width}x{viewport_height}"
+                    await page.set_viewport_size(
+                        {"width": viewport_width, "height": viewport_height}
                     )
 
-                    clip_config = {
-                        "x": wrapper_x,
-                        "y": wrapper_y,
-                        "width": wrapper_width,
-                        "height": wrapper_height,
-                    }
+                    # viewport 调整后重新查询元素
+                    wrapper = await page.query_selector(".wrapper")
+                    if not wrapper:
+                        raise Exception("未找到.wrapper元素(viewport调整后)")
 
                     logger.info(
-                        f"正在截图到: {output_path} "
-                        f"(宽度: {wrapper_width}px, 高度: {wrapper_height}px, 2倍分辨率)"
+                        f"Wrapper宽高: {wrapper_width}x{wrapper_height}, "
+                        f"viewport: {viewport_width}x{viewport_height}, DPR={dpr}"
                     )
-                    await page.screenshot(
-                        path=output_path, full_page=False, type="png", clip=clip_config
+
+                    # 直接对元素截图：比 clip 更稳定
+                    await wrapper.screenshot(
+                        path=output_path,
+                        type="png",
                     )
 
                     logger.info(f"截图完成: {output_path}")
                     return output_path
-
                 finally:
-                    await browser.close()
+                    try:
+                        if context:
+                            await context.close()
+                    finally:
+                        await browser.close()
 
         except Exception as e:
             logger.error(f"Playwright渲染失败: {e}", exc_info=True)
@@ -583,7 +593,11 @@ html, body {
             # 尝试获取 LLM 提供商
             try:
                 # 获取默认的聊天提供商
-                provider_id = await self.context.get_current_chat_provider_id()
+                umo_for_provider = None
+                # 尝试从已学习的群映射里取一个会话ID，以便获取当前会话默认聊天模型
+                if self.group_umo_mapping:
+                    umo_for_provider = next(iter(self.group_umo_mapping.values()))
+                provider_id = await self.context.get_current_chat_provider_id(umo=umo_for_provider) if umo_for_provider else None
                 if not provider_id:
                     # 如果没有，尝试获取所有提供商中的第一个
                     providers = self.context.provider_manager.get_all_providers()

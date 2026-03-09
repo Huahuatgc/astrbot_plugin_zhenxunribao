@@ -30,6 +30,12 @@
     "hint": "建议设置为3-5之间",
     "default": 3
   },
+  "render_dpr": {
+    "description": "渲染清晰度（DPR）",
+    "type": "int",
+    "hint": "数值越大越清晰，但生成更慢、图片更大；建议 3-6。",
+    "default": 5
+  },
   "enable_scheduled_push": {
     "description": "是否启用定时推送",
     "type": "bool",
