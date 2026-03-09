@@ -369,10 +369,17 @@ html, body {
                         f"viewport: {viewport_width}x{viewport_height}, DPR={dpr}"
                     )
 
-                    # 直接对元素截图：比 clip 更稳定
-                    await wrapper.screenshot(
+# 使用 clip 精确裁剪，避免 body absolute 定位导致的大片空白
+                    clip = {
+                        "x": int(box["x"]),
+                        "y": int(box["y"]),
+                        "width": int(box["width"]),
+                        "height": int(box["height"]),
+                    }
+                    await page.screenshot(
                         path=output_path,
                         type="png",
+                        clip=clip,
                     )
 
                     logger.info(f"截图完成: {output_path}")
