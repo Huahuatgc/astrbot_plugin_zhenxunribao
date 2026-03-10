@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+# Local preview artifacts
+daily_news_preview.html
+daily_news_preview.png
+daily_news_preview_data.json
+preview_render.py
+res/font/Microsoft YaHei.ttf

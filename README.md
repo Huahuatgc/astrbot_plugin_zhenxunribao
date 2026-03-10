@@ -1,4 +1,4 @@
-# 真寻日报 (astrbot_plugin_zhenxunribao)
+﻿# 真寻日报 (astrbot_plugin_zhenxunribao)
 
 ✨ 基于 AstrBot 的一个插件 ✨
 
@@ -50,6 +50,7 @@ playwright install chromium
 | `enable_scheduled_push` | bool | `false` | 是否启用定时推送，启用后会在指定时间自动推送日报到配置的群组 |
 | `scheduled_push_time` | str | `"08:00"` | 定时推送时间，HH:MM格式（24小时制），例如：`08:00` 表示每天早上8点 |
 | `scheduled_push_groups` | list | `[]` | 定时推送目标群组列表，直接填写群号即可，如：`["957880653", "123456789"]` |
+| `enable_ai_greeting` | bool | `false` | 是否启用 AI 生成个性化问候语，启用后会调用 AstrBot 当前配置的大模型生成推送问候语 |
 
 ## 🎁 使用
 
@@ -83,6 +84,7 @@ playwright install chromium
 - `aiohttp>=3.8.0` - 异步HTTP请求库
 - `jinja2>=3.0.0` - HTML模板渲染引擎
 - `playwright>=1.40.0` - 浏览器自动化，用于HTML转图片
+- `zhdate>=0.1` - 农历日期计算支持
 
 安装 Playwright 浏览器：
 ```bash
@@ -92,7 +94,7 @@ playwright install chromium
 ## 🖋 字体说明
 
 本插件渲染日报图片时使用了 **HarmonyOS Sans** 字体文件以提升跨系统一致性与清晰度。
-如需二次分发/商用，请同时遵守字体授权条款，并在你的软件/项目中保留对 HarmonyOS Sans 的使用声明。
+
 
 ## ⚠️ 注意事项
 
@@ -117,6 +119,11 @@ playwright install chromium
 - 🐟 **摸鱼日历** - 显示节假日和重要日期提醒
 - 💬 **今日一言** - 每日一句精美文案
 
+## 📝 更新日志
+
+- 最新版本：`1.2.0`
+- 详细变更见 `CHANGELOG.md`
+
 ## 📄 许可证
 
 本项目采用 [AGPL-3.0](LICENSE) 许可证。
@@ -134,3 +141,5 @@ playwright install chromium
 如有问题或建议，欢迎提交 Issue 或 Pull Request！
 
 仓库地址：[https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao](https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao)
+
+

@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import base64
 import os
 import re
@@ -23,7 +23,7 @@ from .api.ithome_rss import ITHomeRSS
 from .api.zaobao_api import ZaobaoAPI
 
 
-@register("astrbot_plugin_zhenxunribao", "Huahuatgc", "小真寻记者为你献上今日报道！", "1.1.0", "https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao")
+@register("astrbot_plugin_zhenxunribao", "Huahuatgc", "小真寻记者为你献上今日报道！", "1.2.0", "https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao")
 class ZhenxunReportPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -752,4 +752,6 @@ html, body {
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
             logger.info("HTTP session 已关闭")
+
+
 
