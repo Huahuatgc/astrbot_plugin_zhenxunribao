@@ -23,7 +23,13 @@ from .api.ithome_rss import ITHomeRSS
 from .api.zaobao_api import ZaobaoAPI
 
 
-@register("astrbot_plugin_zhenxunribao", "Huahuatgc", "小真寻记者为你献上今日报道！", "1.2.0", "https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao")
+@register(
+    "astrbot_plugin_zhenxunribao",
+    "Huahuatgc",
+    "小真寻记者为你献上今日报道！",
+    "1.2.0",
+    "https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao",
+)
 class ZhenxunReportPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -45,11 +51,11 @@ class ZhenxunReportPlugin(Star):
         self.zaobao_api = ZaobaoAPI(token=api_token, session=self.http_session)
 
         self.push_task = None
-        
+
         # 群号到 unified_msg_origin 的映射，用于定时推送
         self.group_umo_mapping = {}
         self._load_group_mapping()
-        
+
         # 启动定时推送任务（使用延迟启动，等待平台适配器就绪）
         if config.get("enable_scheduled_push", False):
             asyncio.create_task(self._delayed_start_scheduler())
@@ -62,7 +68,7 @@ class ZhenxunReportPlugin(Star):
         try:
             # 等待 15 秒让系统完全初始化
             await asyncio.sleep(15)
-            
+
             # 取消已存在的旧任务（防止重复）
             if self.push_task and not self.push_task.done():
                 self.push_task.cancel()
@@ -70,13 +76,13 @@ class ZhenxunReportPlugin(Star):
                     await self.push_task
                 except asyncio.CancelledError:
                     pass
-            
+
             # 确保 HTTP session 可用
             if self.http_session is None or self.http_session.closed:
                 self.http_session = aiohttp.ClientSession()
                 # 重新初始化 API 客户端的 session
                 self._reinit_api_sessions()
-            
+
             self.push_task = asyncio.create_task(self._scheduled_push_task())
             logger.info("定时推送任务已启动（延迟初始化）")
         except Exception as e:
@@ -97,14 +103,14 @@ class ZhenxunReportPlugin(Star):
         # 输出 unified_msg_origin 并自动保存映射
         umo = event.unified_msg_origin
         logger.info(f"日报命令触发，unified_msg_origin: {umo}")
-        
+
         # 自动学习群组的 unified_msg_origin
         group_id = self._extract_group_id(umo)
         if group_id and group_id not in self.group_umo_mapping:
             self.group_umo_mapping[group_id] = umo
             self._save_group_mapping()
             logger.info(f"已学习群组 {group_id} 的 unified_msg_origin: {umo}")
-        
+
         image_path = None
         try:
             image_path = await self._generate_daily_image()
@@ -193,7 +199,7 @@ html, body {
         image_path = await self._render_html_with_playwright(rendered_html)
         logger.info("日报生成成功")
         return image_path
-    
+
     async def _fetch_all_data(
         self,
         max_anime_count: int,
@@ -224,7 +230,11 @@ html, body {
 
         if isinstance(hitokoto_data, dict):
             from_value = hitokoto_data.get("from", "未知")
-            if not from_value or from_value.strip() == "" or from_value.strip() == "网络":
+            if (
+                not from_value
+                or from_value.strip() == ""
+                or from_value.strip() == "网络"
+            ):
                 hitokoto_data["from"] = "佚名"
             else:
                 hitokoto_data["from"] = from_value.strip()
@@ -328,7 +338,9 @@ html, body {
 
             async with async_playwright() as p:
                 logger.info("启动Playwright浏览器...")
-                browser = await p.chromium.launch(headless=True)
+                browser = await p.chromium.connect_over_cdp(
+                    self.config.get("playwright_uri")
+                )
                 try:
                     # 用 context 设置 DPR 提升截图清晰度
                     context = await browser.new_context(
@@ -369,7 +381,7 @@ html, body {
                         f"viewport: {viewport_width}x{viewport_height}, DPR={dpr}"
                     )
 
-# 使用 clip 精确裁剪，避免 body absolute 定位导致的大片空白
+                    # 使用 clip 精确裁剪，避免 body absolute 定位导致的大片空白
                     clip = {
                         "x": int(box["x"]),
                         "y": int(box["y"]),
@@ -450,29 +462,31 @@ html, body {
         try:
             logger.info(f"开始生成日报图片，目标群组数量: {len(group_list)}")
             image_path = await self._generate_daily_image()
-            
+
             # 验证图片文件存在
             if not image_path or not os.path.exists(image_path):
                 logger.error(f"日报图片生成失败或文件不存在: {image_path}")
                 return
-            
+
             logger.info(f"日报图片生成成功: {image_path}")
-            
+
             # 将图片转为 base64
-            with open(image_path, 'rb') as f:
+            with open(image_path, "rb") as f:
                 image_data = f.read()
             image_b64 = base64.b64encode(image_data).decode()
 
             success_count = 0
-            
+
             for group_id in group_list:
                 try:
                     # 提取纯群号
                     clean_group_id = self._extract_group_id(group_id)
                     logger.debug(f"正在向群组 {clean_group_id} 发送日报...")
-                    
+
                     # 使用底层 API 直接发送
-                    result = await self._send_group_msg_via_api(clean_group_id, image_b64)
+                    result = await self._send_group_msg_via_api(
+                        clean_group_id, image_b64
+                    )
                     if result:
                         logger.info(f"成功推送日报到群组: {clean_group_id}")
                         success_count += 1
@@ -482,15 +496,19 @@ html, body {
                         if umo:
                             logger.debug(f"尝试使用映射发送: {umo}")
                             message_chain = MessageChain().file_image(image_path)
-                            fallback_result = await self.context.send_message(umo, message_chain)
+                            fallback_result = await self.context.send_message(
+                                umo, message_chain
+                            )
                             if fallback_result:
-                                logger.info(f"成功推送日报到群组(映射方式): {clean_group_id}")
+                                logger.info(
+                                    f"成功推送日报到群组(映射方式): {clean_group_id}"
+                                )
                                 success_count += 1
                             else:
                                 logger.warning(f"推送失败，群组: {clean_group_id}")
                         else:
                             logger.warning(f"推送失败，群组: {clean_group_id}")
-                    
+
                 except Exception as e:
                     logger.error(f"推送到群组 {group_id} 时出错: {e}", exc_info=True)
 
@@ -510,11 +528,12 @@ html, body {
         """从文件加载群号到 unified_msg_origin 的映射"""
         try:
             import json
+
             # 使用标准数据目录，避免写入插件源码目录
             data_dir = StarTools.get_data_dir("astrbot_plugin_zhenxunribao")
             mapping_file = os.path.join(data_dir, "group_mapping.json")
             if os.path.exists(mapping_file):
-                with open(mapping_file, 'r', encoding='utf-8') as f:
+                with open(mapping_file, "r", encoding="utf-8") as f:
                     self.group_umo_mapping = json.load(f)
                 logger.info(f"已加载 {len(self.group_umo_mapping)} 个群组映射")
         except Exception as e:
@@ -525,10 +544,11 @@ html, body {
         """保存群号到 unified_msg_origin 的映射到文件"""
         try:
             import json
+
             # 使用标准数据目录，避免写入插件源码目录
             data_dir = StarTools.get_data_dir("astrbot_plugin_zhenxunribao")
             mapping_file = os.path.join(data_dir, "group_mapping.json")
-            with open(mapping_file, 'w', encoding='utf-8') as f:
+            with open(mapping_file, "w", encoding="utf-8") as f:
                 json.dump(self.group_umo_mapping, f, ensure_ascii=False, indent=2)
             logger.debug(f"已保存 {len(self.group_umo_mapping)} 个群组映射")
         except Exception as e:
@@ -537,22 +557,22 @@ html, body {
     def _extract_group_id(self, group_id_str: str) -> str:
         """从配置中提取纯群号，支持多种格式"""
         group_id_str = str(group_id_str).strip()
-        
+
         # 如果是纯数字，直接返回
         if group_id_str.isdigit():
             return group_id_str
-        
+
         # 尝试从 unified_msg_origin 格式中提取群号
         # 格式如: aiocqhttp:GroupMessage:123456789 或 default:GroupMessage:xxx_123456789
-        if ':' in group_id_str:
-            parts = group_id_str.split(':')
+        if ":" in group_id_str:
+            parts = group_id_str.split(":")
             if len(parts) >= 3:
                 last_part = parts[-1]
                 # 处理可能的 botid_groupid 格式
-                if '_' in last_part:
-                    return last_part.split('_')[-1]
+                if "_" in last_part:
+                    return last_part.split("_")[-1]
                 return last_part
-        
+
         return group_id_str
 
     async def _generate_greeting_text(self) -> str:
@@ -560,10 +580,11 @@ html, body {
         try:
             # 获取当前时间和节日信息
             from datetime import datetime
+
             now = datetime.now()
             hour = now.hour
             date_info = get_current_date_info()
-            
+
             # 获取节假日信息
             moyu_list = []
             try:
@@ -572,31 +593,36 @@ html, body {
                     moyu_list = holiday_data
             except:
                 pass
-            
+
             # 检查是否启用 AI 生成问候语
             if not self.config.get("enable_ai_greeting", False):
                 return self._get_default_greeting(hour, moyu_list)
-            
+
             # 构建 prompt
             prompt_parts = [
                 f"现在是{date_info['date_str']} {date_info['week_cn']}",
                 f"时间是{hour}点",
             ]
-            
+
             if moyu_list:
-                holiday_names = [h.get('name', '') for h in moyu_list if h.get('name')]
+                holiday_names = [h.get("name", "") for h in moyu_list if h.get("name")]
                 if holiday_names:
-                    prompt_parts.append(f"即将到来的节日：{', '.join(holiday_names[:2])}")
-            
-            if date_info.get('cn_date_str') and date_info.get('cn_date_str') != '农历未知':
+                    prompt_parts.append(
+                        f"即将到来的节日：{', '.join(holiday_names[:2])}"
+                    )
+
+            if (
+                date_info.get("cn_date_str")
+                and date_info.get("cn_date_str") != "农历未知"
+            ):
                 prompt_parts.append(f"农历{date_info['cn_date_str']}")
-            
+
             prompt = (
                 f"{', '.join(prompt_parts)}。"
                 f"请生成一句简短（15字以内）、温馨且富有创意的日报推送问候语。"
                 f"要求：1. 结合时间或节日 2. 亲切自然 3. 带上真寻的口吻 4. 只返回问候语文本，不要其他内容"
             )
-            
+
             # 尝试获取 LLM 提供商
             try:
                 # 获取默认的聊天提供商
@@ -604,20 +630,26 @@ html, body {
                 # 尝试从已学习的群映射里取一个会话ID，以便获取当前会话默认聊天模型
                 if self.group_umo_mapping:
                     umo_for_provider = next(iter(self.group_umo_mapping.values()))
-                provider_id = await self.context.get_current_chat_provider_id(umo=umo_for_provider) if umo_for_provider else None
+                provider_id = (
+                    await self.context.get_current_chat_provider_id(
+                        umo=umo_for_provider
+                    )
+                    if umo_for_provider
+                    else None
+                )
                 if not provider_id:
                     # 如果没有，尝试获取所有提供商中的第一个
                     providers = self.context.provider_manager.get_all_providers()
                     if providers:
                         provider_id = list(providers.keys())[0]
-                
+
                 if provider_id:
                     llm_resp = await self.context.llm_generate(
                         chat_provider_id=provider_id,
                         prompt=prompt,
                     )
-                    
-                    if llm_resp and hasattr(llm_resp, 'completion_text'):
+
+                    if llm_resp and hasattr(llm_resp, "completion_text"):
                         greeting = llm_resp.completion_text.strip()
                         # 清理可能的引号
                         greeting = greeting.strip('"').strip("'").strip()
@@ -626,10 +658,10 @@ html, body {
                             return f"📰 {greeting}\n"
             except Exception as e:
                 logger.debug(f"AI 生成问候语失败: {e}")
-            
+
             # 回退到默认问候语
             return self._get_default_greeting(hour, moyu_list)
-            
+
         except Exception as e:
             logger.warning(f"生成问候语出错: {e}")
             return "📰 真寻日报来啦~\n"
@@ -638,12 +670,28 @@ html, body {
         """获取默认问候语（无 AI 时使用）"""
         # 根据时间段选择问候语
         greetings = {
-            "morning": ["早安！新的一天开始啦~", "早上好！今日份日报送达~", "早安！美好的一天从日报开始~"],
-            "noon": ["中午好！午间日报来啦~", "中午好~来看看今天的资讯吧~", "午安！休息时刻看看日报~"],
-            "afternoon": ["下午好！日报新鲜出炉~", "下午茶时间，看看日报吧~", "下午好！今日资讯已备好~"],
-            "evening": ["晚上好！晚间日报送达~", "晚上好~睡前看看今日资讯吧~", "晚安前的日报时间~"],
+            "morning": [
+                "早安！新的一天开始啦~",
+                "早上好！今日份日报送达~",
+                "早安！美好的一天从日报开始~",
+            ],
+            "noon": [
+                "中午好！午间日报来啦~",
+                "中午好~来看看今天的资讯吧~",
+                "午安！休息时刻看看日报~",
+            ],
+            "afternoon": [
+                "下午好！日报新鲜出炉~",
+                "下午茶时间，看看日报吧~",
+                "下午好！今日资讯已备好~",
+            ],
+            "evening": [
+                "晚上好！晚间日报送达~",
+                "晚上好~睡前看看今日资讯吧~",
+                "晚安前的日报时间~",
+            ],
         }
-        
+
         # 判断时间段
         if 5 <= hour < 11:
             period_greetings = greetings["morning"]
@@ -653,19 +701,20 @@ html, body {
             period_greetings = greetings["afternoon"]
         else:
             period_greetings = greetings["evening"]
-        
+
         # 如果有节日信息，添加节日问候
         if moyu_list and len(moyu_list) > 0:
             holiday = moyu_list[0]
-            if holiday.get('name'):
-                days_left = holiday.get('days', '')
-                if days_left == '0':
+            if holiday.get("name"):
+                days_left = holiday.get("days", "")
+                if days_left == "0":
                     return f"📰 {holiday['name']}快乐！日报送上~\n"
                 elif days_left and int(days_left) <= 3:
                     return f"📰 距离{holiday['name']}还有{days_left}天！日报来啦~\n"
-        
+
         # 随机选择一个问候语
         import random
+
         return f"📰 {random.choice(period_greetings)}\n"
 
     async def _send_group_msg_via_api(self, group_id: str, image_b64: str) -> bool:
@@ -673,56 +722,61 @@ html, body {
         try:
             # 生成个性化问候语
             greeting_text = await self._generate_greeting_text()
-            
+
             # 通过 platform_manager 获取所有平台实例
-            if not hasattr(self.context, 'platform_manager'):
+            if not hasattr(self.context, "platform_manager"):
                 logger.warning("context 没有 platform_manager 属性")
                 return False
-            
+
             platforms = self.context.platform_manager.get_insts()
             if not platforms:
                 logger.warning("没有可用的平台实例")
                 return False
-            
+
             logger.debug(f"发现 {len(platforms)} 个平台实例")
-            
+
             # 遍历所有平台尝试发送
             for platform in platforms:
                 try:
                     # 获取 bot 客户端
                     bot_client = None
-                    if hasattr(platform, 'get_client'):
+                    if hasattr(platform, "get_client"):
                         bot_client = platform.get_client()
-                    elif hasattr(platform, 'client'):
+                    elif hasattr(platform, "client"):
                         bot_client = platform.client
-                    elif hasattr(platform, 'bot'):
+                    elif hasattr(platform, "bot"):
                         bot_client = platform.bot
-                    
+
                     if not bot_client:
                         continue
-                    
+
                     # 获取 call_action 方法
                     call_action = None
-                    if hasattr(bot_client, 'call_action'):
+                    if hasattr(bot_client, "call_action"):
                         call_action = bot_client.call_action
-                    elif hasattr(bot_client, 'api') and hasattr(bot_client.api, 'call_action'):
+                    elif hasattr(bot_client, "api") and hasattr(
+                        bot_client.api, "call_action"
+                    ):
                         call_action = bot_client.api.call_action
-                    
+
                     if not call_action:
                         continue
-                    
+
                     # 调用 OneBot API 发送群消息
                     await call_action(
                         "send_group_msg",
                         group_id=int(group_id),
                         message=[
                             {"type": "text", "data": {"text": greeting_text}},
-                            {"type": "image", "data": {"file": f"base64://{image_b64}"}}
-                        ]
+                            {
+                                "type": "image",
+                                "data": {"file": f"base64://{image_b64}"},
+                            },
+                        ],
                     )
                     logger.info(f"通过 OneBot API 成功发送到群 {group_id}")
                     return True
-                    
+
                 except Exception as e:
                     error_msg = str(e)
                     if "retcode=1200" in error_msg:
@@ -730,10 +784,10 @@ html, body {
                     else:
                         logger.debug(f"平台发送失败: {e}")
                     continue
-            
+
             logger.warning(f"所有平台都无法发送到群 {group_id}")
             return False
-            
+
         except Exception as e:
             logger.error(f"发送群消息失败: {e}")
             return False
@@ -752,6 +806,3 @@ html, body {
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
             logger.info("HTTP session 已关闭")
-
-
-

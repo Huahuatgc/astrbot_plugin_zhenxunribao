@@ -59,5 +59,11 @@
     "type": "bool",
     "hint": "启用后会调用 LLM 生成创意问候语，需要配置好大模型服务。关闭则使用预设的问候语",
     "default": false
+  },
+  "playwright_uri": {
+    "description": "远程 Playwright 服务 URI",
+    "type": "string",
+    "hint": "如果不使用远程服务，留空即可。格式示例：http://localhost:3000",
+    "default": ""
   }
 }
