@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, time
 from urllib.request import pathname2url
 
 import aiohttp
+from aiocqhttp.exceptions import ActionFailed
 from jinja2 import Template
 from playwright.async_api import async_playwright
 
@@ -109,6 +110,16 @@ class ZhenxunReportPlugin(Star):
         try:
             image_path = await self._generate_daily_image()
             yield event.image_result(image_path)
+        except ActionFailed as e:
+            if (e.retcode == 1200
+                    and ("sendMsg" in str(e) or "onMsgInfoListUpdate" in str(e)
+                         or "NTEvent" in str(e))):
+                logger.warning(
+                    f"图片可能已成功发送，但 NapCat/QQNT 回执超时 (retcode=1200)。"
+                    f"若不显示请重试 /日报。"
+                )
+            else:
+                raise
         except Exception as e:
             logger.error(f"生成日报时出错: {e}", exc_info=True)
             yield event.plain_result(f"生成日报时出错: {str(e)}")
@@ -323,7 +334,7 @@ html, body {
                 output_path = temp_html_path.replace(".html", ".png")
 
             # DPR (device scale factor): 越大越清晰，但图片更大、渲染更慢
-            dpr = int(self.config.get("render_dpr", 4))
+            dpr = int(self.config.get("render_dpr", 3))
             dpr = max(1, min(dpr, 6))
 
             async with async_playwright() as p:
@@ -723,12 +734,21 @@ html, body {
                     logger.info(f"通过 OneBot API 成功发送到群 {group_id}")
                     return True
                     
-                except Exception as e:
-                    error_msg = str(e)
-                    if "retcode=1200" in error_msg:
+                except ActionFailed as e:
+                    if (e.retcode == 1200
+                            and ("NTEvent" in str(e) or "sendMsg" in str(e)
+                                 or "onMsgInfoListUpdate" in str(e))):
+                        logger.warning(
+                            f"群 {group_id} 图片可能已发送，NapCat/QQNT 回执超时 (retcode=1200)"
+                        )
+                        return True
+                    if e.retcode == 1200:
                         logger.debug(f"平台不在群 {group_id} 中，继续尝试其他平台")
-                    else:
-                        logger.debug(f"平台发送失败: {e}")
+                        continue
+                    logger.debug(f"平台发送 ActionFailed: {e}")
+                    continue
+                except Exception as e:
+                    logger.debug(f"平台发送失败: {e}")
                     continue
             
             logger.warning(f"所有平台都无法发送到群 {group_id}")
@@ -752,6 +772,3 @@ html, body {
         if self.http_session and not self.http_session.closed:
             await self.http_session.close()
             logger.info("HTTP session 已关闭")
-
-
-
