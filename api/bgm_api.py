@@ -31,64 +31,82 @@ class BGMAPI(BaseAPI):
     async def get_calendar_async(self) -> List:
         """
         异步方式获取 BGM 日历数据（推荐用于 AstrBot）
-        
-        使用专用 session 强制 IPv4，设置合理超时，支持最多 3 次重试。
+
+        先用 IPv4 重试 3 次；若全部失败，再用 IPv4/IPv6 自动选择重试 3 次。
         失败时返回空列表，由 parse_today_anime 降级为默认新番数据。
-        
+
         Returns:
             API 返回的原始数据，失败返回空列表 []
         """
         timeout = aiohttp.ClientTimeout(total=30, connect=10, sock_read=20)
-        connector = aiohttp.TCPConnector(family=socket.AF_INET)
         headers = {
             "User-Agent": "AstrBot zhenxunribao/1.0",
             "Accept": "application/json",
         }
-        
-        last_error = None
-        
-        async with aiohttp.ClientSession(
-            timeout=timeout,
-            connector=connector,
-            headers=headers,
-        ) as session:
-            for attempt in range(1, 4):  # 最多重试 3 次
-                try:
-                    async with session.get(self.url) as resp:
-                        if resp.status == 200:
-                            logger.info("BGM 数据获取成功")
-                            return await resp.json()
-                        
-                        if resp.status in (502, 503, 504):
+
+        async def _try_requests(family: int, label: str) -> List:
+            """以指定地址族重试请求，成功返回数据，失败返回空列表。"""
+            connector = aiohttp.TCPConnector(family=family)
+            last_error = None
+
+            async with aiohttp.ClientSession(
+                timeout=timeout,
+                connector=connector,
+                headers=headers,
+            ) as session:
+                for attempt in range(1, 4):
+                    try:
+                        async with session.get(self.url) as resp:
+                            if resp.status == 200:
+                                logger.info(f"BGM 数据获取成功 ({label})")
+                                return await resp.json()
+
+                            if resp.status in (502, 503, 504):
+                                logger.warning(
+                                    f"BGM API 返回 {resp.status} ({label})，"
+                                    f"第 {attempt}/3 次重试，{attempt} 秒后重试..."
+                                )
+                                if attempt < 3:
+                                    await asyncio.sleep(attempt)
+                                continue
+
                             logger.warning(
-                                f"BGM API 返回 {resp.status}，"
-                                f"第 {attempt}/3 次重试，{2 - attempt} 秒后重试..."
+                                f"BGM API 请求失败: HTTP {resp.status} ({label})"
                             )
-                            if attempt < 3:
-                                await asyncio.sleep(attempt)
-                            continue
-                        
-                        logger.warning(f"BGM API 请求失败: HTTP {resp.status}")
+                            return []
+
+                    except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+                        logger.warning(
+                            f"BGM API 请求异常 ({label})，第 {attempt}/3 次: "
+                            f"{type(e).__name__}: {e}"
+                        )
+                        last_error = e
+                        if attempt < 3:
+                            await asyncio.sleep(attempt)
+
+                    except Exception as e:
+                        logger.error(
+                            f"BGM API 未预期异常 ({label}): "
+                            f"{type(e).__name__}: {e}",
+                            exc_info=True,
+                        )
                         return []
-                        
-                except (asyncio.TimeoutError, aiohttp.ClientError) as e:
-                    logger.warning(
-                        f"BGM API 请求异常，第 {attempt}/3 次: "
-                        f"{type(e).__name__}: {e}"
-                    )
-                    last_error = e
-                    if attempt < 3:
-                        await asyncio.sleep(attempt)
-                        
-                except Exception as e:
-                    logger.error(f"BGM API 未预期异常: {type(e).__name__}: {e}", exc_info=True)
-                    return []
-        
-        logger.error(
-            f"BGM API 请求最终失败，已重试 3 次。"
-            f"最后异常: {type(last_error).__name__}: {last_error}"
-        )
-        return []
+
+            logger.error(
+                f"BGM API ({label}) 最终失败，已重试 3 次。"
+                f"最后异常: {type(last_error).__name__}: {last_error}"
+            )
+            return []
+
+        # 阶段 1：IPv4 only（最多 3 次）
+        result = await _try_requests(socket.AF_INET, "IPv4")
+        if result:
+            return result
+
+        # 阶段 2：IPv4 + IPv6 自动选择（最多 3 次）
+        logger.info("IPv4 阶段全部失败，切换为 IPv4/IPv6 自动选择重试...")
+        result = await _try_requests(0, "IPv4/IPv6")
+        return result
     
     def parse_today_anime(self, api_data: Optional[List], max_count: int = 4) -> List[Dict]:
         """
@@ -174,10 +192,10 @@ class BGMAPI(BaseAPI):
             默认新番列表
         """
         return [
-            {'title': '葬送的芙莉莲 第二季', 'image': './res/image/anime1.jpg'},
-            {'title': '咒术回战 涉谷事变篇', 'image': './res/image/anime2.jpg'},
-            {'title': '间谍过家家 第三季', 'image': './res/image/anime3.jpg'},
-            {'title': '鬼灭之刃 柱训练篇', 'image': './res/image/anime4.jpg'}
+            {'title': '葬送的芙莉莲 第二季', 'image': './res/image/1.no-bg.png'},
+            {'title': '咒术回战 涉谷事变篇', 'image': './res/image/1.no-bg.png'},
+            {'title': '间谍过家家 第三季', 'image': './res/image/1.no-bg.png'},
+            {'title': '鬼灭之刃 柱训练篇', 'image': './res/image/1.no-bg.png'},
         ]
     
     async def get_today_anime_async(self, max_count: int = 4) -> List[Dict]:

@@ -103,7 +103,128 @@ playwright install chromium
 3. **网络环境**：插件需要访问多个外部API，请确保网络连接正常
 4. **群组ID获取**：配置定时推送时，可以通过在目标群内发送 `/日报` 后查看日志获取正确的群组ID格式
 
-## 🛠️ 技术实现
+## 🔧 常见问题与排查思路
+
+以下为日报功能出现异常时的排查参考，大部分问题已在最新版本中内置修复或降级处理。
+
+### 1. 确认命令在 AstrBot 容器内执行
+
+如果使用 Docker 部署，所有命令需要在容器内运行：
+
+```bash
+docker exec -it astrbot bash
+```
+
+### 2. Playwright Chromium 未安装
+
+**现象**：日志出现 `playwright` 相关错误，日报生成失败。
+
+**排查**：
+```bash
+python -c "from playwright.sync_api import sync_playwright; print('OK')"
+```
+
+如果报错，执行：
+```bash
+playwright install chromium
+```
+
+### 3. Chromium 已下载但启动失败（缺少系统依赖）
+
+**现象**：`playwright install chromium` 成功，但运行时报 `error while loading shared libraries: libXXX.so` 或 `Failed to launch browser`。
+
+**原因**：Debian/Alpine 等精简镜像缺少 Chromium 所需的系统库。
+
+**排查**（在容器内）：
+```bash
+playwright install-deps chromium
+# 如果上面的命令不可用，手动安装缺失依赖：
+apt-get update && apt-get install -y libnss3 libnspr4 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1 libasound2
+```
+
+### 4. 图片资源或图标缺失
+
+**现象**：日报图片中某处显示空白/占位符。日志提示 `资源文件不存在`。
+
+**原因**：`res/icon/` 或 `res/image/` 目录下缺少对应图片文件。
+
+**排查**：以下为日报模板实际使用的资源文件：
+
+| 用途 | 文件路径 | 缺失时的表现 |
+|------|---------|-------------|
+| 真寻头像 | `res/image/1.no-bg.png` | 头部图片空白 |
+| 摸鱼日历图标 | `res/icon/fish.png` | 标签旁图片消失 |
+| B站热点图标 | `res/icon/bilibili.png` | 标签旁图片消失 |
+| 今日新番图标 | `res/icon/bgm.png` | 标签旁图片消失 |
+| 60s读懂世界图标 | `res/icon/60.png` | 标签旁图片消失 |
+| IT资讯图标 | `res/icon/it.png` | 标签旁图片消失 |
+| 今日一言图标 | `res/icon/hitokoto.png` | 标签旁图片消失 |
+
+
+### 5. BGM API 偶发 502 / Timeout（已内置修复）
+
+**状态**：最新版本已内置 IPv4 优先连接 + 最多 3 次重试 + 失败后降级为系统默认 DNS（IPv4/IPv6 双栈）。若所有网络请求均失败，日报「今日新番」部分会自动使用 `1.no-bg.png` 作为默认图片，不会出现破损图或崩溃。
+
+**仍想验证**（在容器内）：
+```bash
+# 测试 BGM API 连通性（IPv4 强制）
+curl -4 --max-time 10 "https://api.bgm.tv/calendar/today"
+# 如果上述失败，尝试系统默认解析
+curl --max-time 10 "https://api.bgm.tv/calendar/today"
+```
+
+如果两者都失败，说明是网络/防火墙层面的问题，与插件代码无关。
+
+### 6. 图片发送遇 retcode=1200（已内置降级处理）
+
+**现象**：QQ群内日报图片正常显示，但日志出现 `ActionFailed retcode=1200`。
+
+**原因**：NapCat/QQNT 协议在发送完成后回执超时，图片**可能**已成功送达，不一定是失败。
+
+**状态**：最新版本在异常信息包含 `sendMsg`、`onMsgInfoListUpdate`、`NTEvent` 等关键字时，会记录以下 Warning 而不抛出异常：
+```
+图片可能已成功发送，但 NapCat/QQNT 回执超时 (retcode=1200)
+```
+定时推送通道同样对此做了降级处理。**注意**：若 retcode=1200 不含预期关键字（极少见），仍可能输出错误堆栈，此时可在群内重试 `/日报` 确认。
+
+### 7. curl 测试 BGM API 返回 JSON 后报 `curl: (23) Failure writing output to destination`
+
+**现象**：
+```bash
+$ curl -4 --max-time 10 "https://api.bgm.tv/calendar/today"
+[{"id": 456, ...}]curl: (23) Failure writing output to destination
+```
+
+**原因**：API 返回了 JSON 但体积较大，终端缓冲区无法完整接收。**JSON 已成功返回**，`curl: (23)` 只是写入终端的错误，不影响实际网络请求。**这不是 BGM API 的问题。**
+
+### 8. 其他问题排查入口
+
+```bash
+# 1. 查看 AstrBot 日志（包含插件加载和日报生成详细日志）
+docker logs -f astrbot --tail 100
+
+# 2. 在 WebUI 中检查插件是否已启用、配置是否正常
+
+# 3. 重启插件：WebUI → 插件管理 → 重载插件
+
+# 4. 确保容器时间正确
+date
+```
+
+## 推荐排查顺序
+
+1. 确认容器时间正确（`date`）
+2. 检查 Playwright Chromium 是否安装（`playwright install chromium`）
+3. 检查系统依赖（`playwright install-deps chromium`）
+4. 检查资源文件完整性（`res/icon/` 和 `res/image/` 目录）
+5. 用 curl 测试 BGM API 是否可达
+6. 查看 AstrBot 日志中是否有其他异常
+
+## 一句话总结
+
+> **资源完整 + Chromium 安装成功 + 系统依赖齐全 + 网络可达 = 日报正常生成与发送。** 其余大多数异常（retcode=1200、BGM API 502）已在最新版本中内置修复或降级处理，可放心使用。
+
+## ️ 技术实现
 
 - 使用 **Jinja2** 渲染HTML模板
 - 使用 **Playwright** 进行HTML到图片的转换，支持2倍分辨率高清渲染
@@ -141,5 +262,3 @@ playwright install chromium
 如有问题或建议，欢迎提交 Issue 或 Pull Request！
 
 仓库地址：[https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao](https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao)
-
-
