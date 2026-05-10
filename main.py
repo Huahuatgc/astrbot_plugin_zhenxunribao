@@ -13,6 +13,7 @@ from playwright.async_api import async_playwright
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import MessageChain, filter, AstrMessageEvent
+from astrbot.api.all import Image
 from astrbot.api.star import Context, Star, register, StarTools
 
 from .api.bgm_api import BGMAPI
@@ -109,17 +110,20 @@ class ZhenxunReportPlugin(Star):
         image_path = None
         try:
             image_path = await self._generate_daily_image()
-            yield event.image_result(image_path)
-        except ActionFailed as e:
-            if (e.retcode == 1200
-                    and ("sendMsg" in str(e) or "onMsgInfoListUpdate" in str(e)
-                         or "NTEvent" in str(e))):
-                logger.warning(
-                    f"图片可能已成功发送，但 NapCat/QQNT 回执超时 (retcode=1200)。"
-                    f"若不显示请重试 /日报。"
-                )
-            else:
-                raise
+            event.stop_event()
+            chain = event.chain_result([Image.fromFileSystem(image_path)])
+            try:
+                await event.send(chain)
+            except ActionFailed as e:
+                if (e.retcode == 1200
+                        and ("NTEvent" in str(e) or "sendMsg" in str(e)
+                             or "onMsgInfoListUpdate" in str(e))):
+                    logger.warning(
+                        f"图片可能已成功发送，但 NapCat/QQNT 回执超时 (retcode=1200)。"
+                        f"若不显示请重试 /日报。"
+                    )
+                else:
+                    raise
         except Exception as e:
             logger.error(f"生成日报时出错: {e}", exc_info=True)
             yield event.plain_result(f"生成日报时出错: {str(e)}")
@@ -488,17 +492,28 @@ html, body {
                         logger.info(f"成功推送日报到群组: {clean_group_id}")
                         success_count += 1
                     else:
-                        # 回退：尝试使用已学习的映射
+                        # 回退：尝试使用已学习的映射，直接调用底层 API 发送
                         umo = self.group_umo_mapping.get(clean_group_id)
                         if umo:
                             logger.debug(f"尝试使用映射发送: {umo}")
-                            message_chain = MessageChain().file_image(image_path)
-                            fallback_result = await self.context.send_message(umo, message_chain)
-                            if fallback_result:
+                            chain = MessageChain().chain([Image.fromFileSystem(image_path)])
+                            try:
+                                await self.context.send_message(umo, chain)
                                 logger.info(f"成功推送日报到群组(映射方式): {clean_group_id}")
                                 success_count += 1
-                            else:
-                                logger.warning(f"推送失败，群组: {clean_group_id}")
+                            except ActionFailed as e:
+                                if (e.retcode == 1200
+                                        and ("NTEvent" in str(e) or "sendMsg" in str(e)
+                                             or "onMsgInfoListUpdate" in str(e))):
+                                    logger.warning(
+                                        f"群 {clean_group_id} 映射方式图片可能已发送，"
+                                        f"NapCat/QQNT 回执超时 (retcode=1200)"
+                                    )
+                                    success_count += 1
+                                else:
+                                    logger.warning(f"映射方式推送失败，群组: {clean_group_id}, 错误: {e}")
+                            except Exception as e:
+                                logger.warning(f"映射方式推送失败，群组: {clean_group_id}, 错误: {e}")
                         else:
                             logger.warning(f"推送失败，群组: {clean_group_id}")
                     
