@@ -2,6 +2,8 @@
 BGM (Bangumi) API 处理模块
 用于获取今日新番数据，供日报模板使用
 """
+import socket
+import asyncio
 import aiohttp
 from datetime import datetime
 from typing import List, Dict, Optional
@@ -26,28 +28,67 @@ class BGMAPI(BaseAPI):
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
     
-    async def get_calendar_async(self) -> Optional[List]:
+    async def get_calendar_async(self) -> List:
         """
         异步方式获取 BGM 日历数据（推荐用于 AstrBot）
         
+        使用专用 session 强制 IPv4，设置合理超时，支持最多 3 次重试。
+        失败时返回空列表，由 parse_today_anime 降级为默认新番数据。
+        
         Returns:
-            API 返回的原始数据，失败返回 None
+            API 返回的原始数据，失败返回空列表 []
         """
-        try:
-            session = await self._get_session()
-            async with session.get(
-                self.url,
-                headers=self.headers,
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as response:
-                response.raise_for_status()
-                return await response.json()
-        except aiohttp.ClientError as e:
-            logger.warning(f"请求 BGM API 失败: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"获取 BGM 数据失败: {e}", exc_info=True)
-            return None
+        timeout = aiohttp.ClientTimeout(total=30, connect=10, sock_read=20)
+        connector = aiohttp.TCPConnector(family=socket.AF_INET)
+        headers = {
+            "User-Agent": "AstrBot zhenxunribao/1.0",
+            "Accept": "application/json",
+        }
+        
+        last_error = None
+        
+        async with aiohttp.ClientSession(
+            timeout=timeout,
+            connector=connector,
+            headers=headers,
+        ) as session:
+            for attempt in range(1, 4):  # 最多重试 3 次
+                try:
+                    async with session.get(self.url) as resp:
+                        if resp.status == 200:
+                            logger.info("BGM 数据获取成功")
+                            return await resp.json()
+                        
+                        if resp.status in (502, 503, 504):
+                            logger.warning(
+                                f"BGM API 返回 {resp.status}，"
+                                f"第 {attempt}/3 次重试，{2 - attempt} 秒后重试..."
+                            )
+                            if attempt < 3:
+                                await asyncio.sleep(attempt)
+                            continue
+                        
+                        logger.warning(f"BGM API 请求失败: HTTP {resp.status}")
+                        return []
+                        
+                except (asyncio.TimeoutError, aiohttp.ClientError) as e:
+                    logger.warning(
+                        f"BGM API 请求异常，第 {attempt}/3 次: "
+                        f"{type(e).__name__}: {e}"
+                    )
+                    last_error = e
+                    if attempt < 3:
+                        await asyncio.sleep(attempt)
+                        
+                except Exception as e:
+                    logger.error(f"BGM API 未预期异常: {type(e).__name__}: {e}", exc_info=True)
+                    return []
+        
+        logger.error(
+            f"BGM API 请求最终失败，已重试 3 次。"
+            f"最后异常: {type(last_error).__name__}: {last_error}"
+        )
+        return []
     
     def parse_today_anime(self, api_data: Optional[List], max_count: int = 4) -> List[Dict]:
         """
