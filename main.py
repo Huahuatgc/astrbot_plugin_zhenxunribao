@@ -120,7 +120,7 @@ class ZhenxunReportPlugin(Star):
                              or "onMsgInfoListUpdate" in str(e))):
                     logger.warning(
                         f"图片可能已成功发送，但 NapCat/QQNT 回执超时 (retcode=1200)。"
-                        f"若不显示请重试 /日报。"
+                        f"若长时间(超过60s)不显示请重试 /日报。"
                     )
                 else:
                     raise
