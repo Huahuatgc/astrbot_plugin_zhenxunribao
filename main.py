@@ -581,6 +581,37 @@ html, body {
         
         return group_id_str
 
+    def _get_special_holiday_context(self, moyu_list: list):
+        """仅在节假日当天、前一天、前七天返回特殊播报上下文。"""
+        if not moyu_list:
+            return None
+
+        for holiday in moyu_list:
+            if not isinstance(holiday, dict):
+                continue
+
+            name = holiday.get("name")
+            if not name:
+                continue
+
+            days_left = holiday.get("days_left")
+            if days_left is None:
+                days_left = holiday.get("days")
+
+            try:
+                days_left = int(days_left)
+            except (TypeError, ValueError):
+                continue
+
+            if days_left == 7:
+                return {"name": name, "days_left": days_left, "type": "week_before"}
+            if days_left == 1:
+                return {"name": name, "days_left": days_left, "type": "day_before"}
+            if days_left == 0:
+                return {"name": name, "days_left": days_left, "type": "today"}
+
+        return None
+
     async def _generate_greeting_text(self) -> str:
         """使用 AI 生成个性化的推送文本"""
         try:
@@ -602,26 +633,45 @@ html, body {
             # 检查是否启用 AI 生成问候语
             if not self.config.get("enable_ai_greeting", False):
                 return self._get_default_greeting(hour, moyu_list)
-            
+
             # 构建 prompt
+            special_holiday = self._get_special_holiday_context(moyu_list)
             prompt_parts = [
                 f"现在是{date_info['date_str']} {date_info['week_cn']}",
                 f"时间是{hour}点",
             ]
-            
-            if moyu_list:
-                holiday_names = [h.get('name', '') for h in moyu_list if h.get('name')]
-                if holiday_names:
-                    prompt_parts.append(f"即将到来的节日：{', '.join(holiday_names[:2])}")
-            
+
             if date_info.get('cn_date_str') and date_info.get('cn_date_str') != '农历未知':
                 prompt_parts.append(f"农历{date_info['cn_date_str']}")
-            
-            prompt = (
-                f"{', '.join(prompt_parts)}。"
-                f"请生成一句简短（15字以内）、温馨且富有创意的日报推送问候语。"
-                f"要求：1. 结合时间或节日 2. 亲切自然 3. 带上真寻的口吻 4. 只返回问候语文本，不要其他内容"
-            )
+
+            prompt_prefix = f"{', '.join(prompt_parts)}。"
+            if special_holiday:
+                holiday_name = special_holiday["name"]
+                holiday_type = special_holiday["type"]
+                if holiday_type == "week_before":
+                    prompt = (
+                        f"{prompt_prefix}距离{holiday_name}还有7天。"
+                        f"请生成一句简短（15字以内）、自然、有轻微期待感的早安日报问候语。"
+                        f"要求：1. 结合这个节日节点 2. 亲切自然 3. 带上真寻的口吻 4. 只返回问候语文本，不要其他内容"
+                    )
+                elif holiday_type == "day_before":
+                    prompt = (
+                        f"{prompt_prefix}明天就是{holiday_name}。"
+                        f"请生成一句简短（15字以内）、温馨、有临近节日氛围的早安日报问候语。"
+                        f"要求：1. 结合这个节日节点 2. 亲切自然 3. 带上真寻的口吻 4. 只返回问候语文本，不要其他内容"
+                    )
+                else:
+                    prompt = (
+                        f"{prompt_prefix}今天是{holiday_name}。"
+                        f"请生成一句简短（15字以内）、应景、亲切的节日早安日报问候语。"
+                        f"要求：1. 结合今天的节日 2. 亲切自然 3. 带上真寻的口吻 4. 只返回问候语文本，不要其他内容"
+                    )
+            else:
+                prompt = (
+                    f"{prompt_prefix}"
+                    f"请生成一句简短（15字以内）、温馨自然、适合早安场景的日报推送问候语。"
+                    f"要求：1. 不要提及节日 2. 亲切自然 3. 带上真寻的口吻 4. 只返回问候语文本，不要其他内容"
+                )
             
             # 尝试获取 LLM 提供商
             try:
@@ -680,16 +730,18 @@ html, body {
         else:
             period_greetings = greetings["evening"]
         
-        # 如果有节日信息，添加节日问候
-        if moyu_list and len(moyu_list) > 0:
-            holiday = moyu_list[0]
-            if holiday.get('name'):
-                days_left = holiday.get('days', '')
-                if days_left == '0':
-                    return f"📰 {holiday['name']}快乐！日报送上~\n"
-                elif days_left and int(days_left) <= 3:
-                    return f"📰 距离{holiday['name']}还有{days_left}天！日报来啦~\n"
-        
+        # 仅在节假日当天、前一天、前七天添加节日问候
+        special_holiday = self._get_special_holiday_context(moyu_list)
+        if special_holiday:
+            holiday_name = special_holiday["name"]
+            days_left = special_holiday["days_left"]
+            if days_left == 0:
+                return f"📰 {holiday_name}快乐！日报送上~\n"
+            if days_left == 1:
+                return f"📰 明天就是{holiday_name}啦！日报送上~\n"
+            if days_left == 7:
+                return f"📰 距离{holiday_name}还有7天！日报来啦~\n"
+
         # 随机选择一个问候语
         import random
         return f"📰 {random.choice(period_greetings)}\n"
