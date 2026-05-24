@@ -459,64 +459,93 @@ html, body {
                 logger.error(f"定时推送任务出错: {e}", exc_info=True)
                 await asyncio.sleep(3600)
 
+    @staticmethod
+    def _is_wechat_platform(umo: str) -> bool:
+        """判断 unified_msg_origin 是否属于微信平台"""
+        if not umo:
+            return False
+        lower = umo.lower()
+        return "weixin" in lower or "wechat" in lower
+
+    @staticmethod
+    def _is_onebot_platform(umo: str) -> bool:
+        """判断 unified_msg_origin 是否属于 OneBot (QQ) 平台"""
+        if not umo:
+            return False
+        lower = umo.lower()
+        return "aiocqhttp" in lower or "onebot" in lower
+
     async def _push_daily_to_groups(self, group_list: list):
-        """向指定群组推送日报 - 直接使用 OneBot API"""
+        """向指定群组推送日报 —— 自动适配 QQ / 微信等平台"""
         image_path = None
         try:
             logger.info(f"开始生成日报图片，目标群组数量: {len(group_list)}")
             image_path = await self._generate_daily_image()
-            
+
             # 验证图片文件存在
             if not image_path or not os.path.exists(image_path):
                 logger.error(f"日报图片生成失败或文件不存在: {image_path}")
                 return
-            
+
             logger.info(f"日报图片生成成功: {image_path}")
-            
-            # 将图片转为 base64
-            with open(image_path, 'rb') as f:
-                image_data = f.read()
-            image_b64 = base64.b64encode(image_data).decode()
+
+            # 生成问候语（所有平台共用）
+            greeting_text = await self._generate_greeting_text()
+
+            # OneBot 平台额外准备 base64 图片
+            image_b64 = None
 
             success_count = 0
-            
+
             for group_id in group_list:
                 try:
-                    # 提取纯群号
+                    # 提取纯群号 / 原始 UMO
                     clean_group_id = self._extract_group_id(group_id)
+                    # 获取 unified_msg_origin：优先用配置项原始值，其次查映射表
+                    umo = group_id if ":" in str(group_id) else self.group_umo_mapping.get(clean_group_id)
+
                     logger.debug(f"正在向群组 {clean_group_id} 发送日报...")
-                    
-                    # 使用底层 API 直接发送
-                    result = await self._send_group_msg_via_api(clean_group_id, image_b64)
-                    if result:
-                        logger.info(f"成功推送日报到群组: {clean_group_id}")
+
+                    sent = False
+
+                    # ── 1) OneBot (QQ) 平台：优先走原生 API ──
+                    if self._is_onebot_platform(umo or ""):
+                        if image_b64 is None:
+                            with open(image_path, 'rb') as f:
+                                image_b64 = base64.b64encode(f.read()).decode()
+                        sent = await self._send_group_msg_via_api(clean_group_id, image_b64, greeting_text)
+
+                    # ── 2) 通用回退：通过 context.send_message 适配所有平台 ──
+                    if not sent and umo:
+                        logger.debug(f"尝试通用方式发送: {umo}")
+                        from astrbot.api.all import Plain as _Plain
+                        chain = MessageChain([
+                            _Plain(greeting_text),
+                            Image.fromFileSystem(image_path),
+                        ])
+                        try:
+                            await self.context.send_message(umo, chain)
+                            logger.info(f"成功推送日报到群组(通用方式): {clean_group_id}")
+                            sent = True
+                        except ActionFailed as e:
+                            if (e.retcode == 1200
+                                    and ("NTEvent" in str(e) or "sendMsg" in str(e)
+                                         or "onMsgInfoListUpdate" in str(e))):
+                                logger.warning(
+                                    f"群 {clean_group_id} 图片可能已发送，"
+                                    f"NapCat/QQNT 回执超时 (retcode=1200)"
+                                )
+                                sent = True
+                            else:
+                                logger.warning(f"通用方式推送失败，群组: {clean_group_id}, 错误: {e}")
+                        except Exception as e:
+                            logger.warning(f"通用方式推送失败，群组: {clean_group_id}, 错误: {e}")
+
+                    if sent:
                         success_count += 1
                     else:
-                        # 回退：尝试使用已学习的映射，直接调用底层 API 发送
-                        umo = self.group_umo_mapping.get(clean_group_id)
-                        if umo:
-                            logger.debug(f"尝试使用映射发送: {umo}")
-                            chain = MessageChain().chain([Image.fromFileSystem(image_path)])
-                            try:
-                                await self.context.send_message(umo, chain)
-                                logger.info(f"成功推送日报到群组(映射方式): {clean_group_id}")
-                                success_count += 1
-                            except ActionFailed as e:
-                                if (e.retcode == 1200
-                                        and ("NTEvent" in str(e) or "sendMsg" in str(e)
-                                             or "onMsgInfoListUpdate" in str(e))):
-                                    logger.warning(
-                                        f"群 {clean_group_id} 映射方式图片可能已发送，"
-                                        f"NapCat/QQNT 回执超时 (retcode=1200)"
-                                    )
-                                    success_count += 1
-                                else:
-                                    logger.warning(f"映射方式推送失败，群组: {clean_group_id}, 错误: {e}")
-                            except Exception as e:
-                                logger.warning(f"映射方式推送失败，群组: {clean_group_id}, 错误: {e}")
-                        else:
-                            logger.warning(f"推送失败，群组: {clean_group_id}")
-                    
+                        logger.warning(f"推送失败，群组: {clean_group_id}")
+
                 except Exception as e:
                     logger.error(f"推送到群组 {group_id} 时出错: {e}", exc_info=True)
 
@@ -524,6 +553,7 @@ html, body {
 
         except Exception as e:
             logger.error(f"定时推送日报失败: {e}", exc_info=True)
+        finally:
             # 清理临时文件
             if image_path and os.path.exists(image_path):
                 try:
@@ -746,11 +776,11 @@ html, body {
         import random
         return f"📰 {random.choice(period_greetings)}\n"
 
-    async def _send_group_msg_via_api(self, group_id: str, image_b64: str) -> bool:
-        """使用 OneBot API 直接发送群消息"""
+    async def _send_group_msg_via_api(self, group_id: str, image_b64: str, greeting_text: str = "") -> bool:
+        """使用 OneBot API 直接发送群消息（仅适用于 QQ/OneBot 平台）"""
         try:
-            # 生成个性化问候语
-            greeting_text = await self._generate_greeting_text()
+            if not greeting_text:
+                greeting_text = await self._generate_greeting_text()
             
             # 通过 platform_manager 获取所有平台实例
             if not hasattr(self.context, 'platform_manager'):
@@ -790,9 +820,15 @@ html, body {
                         continue
                     
                     # 调用 OneBot API 发送群消息
+                    # 将 group_id 转换为合适的类型（QQ群用int，微信等平台保留字符串）
+                    send_gid = group_id
+                    try:
+                        send_gid = int(group_id)
+                    except (ValueError, TypeError):
+                        pass  # 非数字ID（如微信），保留原样
                     await call_action(
                         "send_group_msg",
-                        group_id=int(group_id),
+                        group_id=send_gid,
                         message=[
                             {"type": "text", "data": {"text": greeting_text}},
                             {"type": "image", "data": {"file": f"base64://{image_b64}"}}
