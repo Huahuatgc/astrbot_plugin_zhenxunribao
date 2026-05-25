@@ -1,6 +1,7 @@
 ﻿import asyncio
 import base64
 import os
+import random
 import re
 import tempfile
 from datetime import datetime, timedelta, time
@@ -25,8 +26,11 @@ from .api.ithome_rss import ITHomeRSS
 from .api.zaobao_api import ZaobaoAPI
 
 
-@register("astrbot_plugin_zhenxunribao", "Huahuatgc", "小真寻记者为你献上今日报道！", "1.2.0", "https://github.com/Huahuatgc/astrbot_plugin_zhenxunribao")
+@register("astrbot_plugin_zhenxunribao", "Huahuatgc", "小真寻记者为你献上今日报道！", "1.3.0", "https://github.com/luminacry/astrbot_plugin_zhenxunribao")
 class ZhenxunReportPlugin(Star):
+    _CACHE_PREFIX = "daily_news_"
+    _CACHE_SUFFIX = ".png"
+
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
@@ -34,6 +38,15 @@ class ZhenxunReportPlugin(Star):
         plugin_dir = os.path.dirname(os.path.abspath(__file__))
         self.template_path = os.path.join(plugin_dir, "daily_news.html")
         self.plugin_dir = plugin_dir
+
+        # 初始化缓存目录
+        self.cache_dir = os.path.join(StarTools.get_data_dir("astrbot_plugin_zhenxunribao"), "cache")
+        os.makedirs(self.cache_dir, exist_ok=True)
+        # 清理过期缓存（保留当天的）
+        self._cleanup_expired_cache()
+
+        # 渲染锁：防止两个协程同时启动 Playwright 重复渲染
+        self._render_lock = asyncio.Lock()
 
         # 创建共享的 aiohttp ClientSession，供所有 API 类复用
         self.http_session = aiohttp.ClientSession()
@@ -58,6 +71,31 @@ class ZhenxunReportPlugin(Star):
             logger.info("定时推送任务正在初始化...")
 
         logger.info("真寻日报插件已加载")
+
+    def _get_today_cache_path(self) -> str:
+        """获取当天缓存图片的路径"""
+        today = datetime.now().strftime("%Y%m%d")
+        return os.path.join(self.cache_dir, f"{self._CACHE_PREFIX}{today}{self._CACHE_SUFFIX}")
+
+    def _cleanup_expired_cache(self):
+        """清理过期的缓存文件（保留当天的）"""
+        try:
+            today = datetime.now().strftime("%Y%m%d")
+            if not os.path.exists(self.cache_dir):
+                return
+            
+            for filename in os.listdir(self.cache_dir):
+                if filename.startswith(self._CACHE_PREFIX) and filename.endswith(self._CACHE_SUFFIX):
+                    date_str = filename[len(self._CACHE_PREFIX):-len(self._CACHE_SUFFIX)]
+                    if len(date_str) == 8 and date_str.isdigit() and date_str != today:
+                        filepath = os.path.join(self.cache_dir, filename)
+                        try:
+                            os.remove(filepath)
+                            logger.debug(f"已清理过期缓存: {filename}")
+                        except Exception as e:
+                            logger.warning(f"清理过期缓存失败 {filename}: {e}")
+        except Exception as e:
+            logger.warning(f"清理过期缓存时出错: {e}")
 
     async def _delayed_start_scheduler(self):
         """延迟启动定时推送调度器"""
@@ -93,21 +131,8 @@ class ZhenxunReportPlugin(Star):
         self.ithome_rss.set_session(self.http_session)
         self.zaobao_api.set_session(self.http_session)
 
-    @filter.command("日报")
-    async def daily_news(self, event: AstrMessageEvent):
-        """生成日报"""
-        # 输出 unified_msg_origin 并自动保存映射
-        umo = event.unified_msg_origin
-        logger.info(f"日报命令触发，unified_msg_origin: {umo}")
-        
-        # 自动学习群组的 unified_msg_origin
-        group_id = self._extract_group_id(umo)
-        if group_id and group_id not in self.group_umo_mapping:
-            self.group_umo_mapping[group_id] = umo
-            self._save_group_mapping()
-            logger.info(f"已学习群组 {group_id} 的 unified_msg_origin: {umo}")
-        
-        image_path = None
+    async def _generate_and_send_daily(self, event: AstrMessageEvent) -> str | None:
+        """生成日报图片并发送。成功返回 None，失败返回错误消息字符串。"""
         try:
             image_path = await self._generate_daily_image()
             event.stop_event()
@@ -124,17 +149,27 @@ class ZhenxunReportPlugin(Star):
                     )
                 else:
                     raise
+            return None
         except Exception as e:
             logger.error(f"生成日报时出错: {e}", exc_info=True)
-            yield event.plain_result(f"生成日报时出错: {str(e)}")
-        finally:
-            # 清理临时图片文件
-            if image_path and os.path.exists(image_path):
-                try:
-                    os.remove(image_path)
-                    logger.debug(f"已清理临时图片文件: {image_path}")
-                except Exception as e:
-                    logger.warning(f"清理临时图片文件失败: {e}")
+            return f"生成日报时出错: {str(e)}"
+
+    @filter.command("日报")
+    async def daily_news(self, event: AstrMessageEvent):
+        """生成日报"""
+        umo = event.unified_msg_origin
+        logger.info(f"日报命令触发，unified_msg_origin: {umo}")
+        
+        # 自动学习群组的 unified_msg_origin
+        group_id = self._extract_group_id(umo)
+        if group_id and group_id not in self.group_umo_mapping:
+            self.group_umo_mapping[group_id] = umo
+            self._save_group_mapping()
+            logger.info(f"已学习群组 {group_id} 的 unified_msg_origin: {umo}")
+        
+        error = await self._generate_and_send_daily(event)
+        if error:
+            yield event.plain_result(error)
 
     @filter.command("日报群组ID")
     async def get_group_id(self, event: AstrMessageEvent):
@@ -147,55 +182,87 @@ class ZhenxunReportPlugin(Star):
             f"💡 请将此值添加到插件配置的「定时推送目标群组列表」中"
         )
 
+    @filter.command("日报刷新")
+    async def refresh_daily_news(self, event: AstrMessageEvent):
+        """清除当天缓存并重新生成日报"""
+        cache_path = self._get_today_cache_path()
+        if os.path.exists(cache_path):
+            try:
+                os.remove(cache_path)
+                logger.info(f"已清除当天缓存: {cache_path}")
+            except Exception as e:
+                logger.warning(f"清除缓存失败: {e}")
+                yield event.plain_result(f"❌ 清除缓存失败: {str(e)}")
+                return
+        # 清除后立即重新生成并发送
+        error = await self._generate_and_send_daily(event)
+        if error:
+            yield event.plain_result(error)
+
     async def _generate_daily_image(self) -> str:
-        logger.info("开始生成日报")
+        # 快速路径：缓存命中直接返回，不持锁
+        cache_path = self._get_today_cache_path()
+        if os.path.exists(cache_path):
+            logger.info(f"使用当天缓存: {cache_path}")
+            return cache_path
+        
+        async with self._render_lock:
+            # 双重检查：持锁后再次确认缓存没有被其他协程刚写入
+            if os.path.exists(cache_path):
+                logger.info(f"使用当天缓存(双重检查): {cache_path}")
+                return cache_path
+            
+            # 缓存未命中 → 顺便清理过期文件，防止长期运行不重启导致堆积
+            self._cleanup_expired_cache()
+            
+            logger.info("开始生成日报")
 
-        max_anime_count = self.config.get("max_anime_count", 4)
-        max_news_count = self.config.get("max_news_count", 5)
-        max_hotword_count = self.config.get("max_hotword_count", 4)
-        max_holiday_count = self.config.get("max_holiday_count", 3)
+            max_anime_count = self.config.get("max_anime_count", 4)
+            max_news_count = self.config.get("max_news_count", 5)
+            max_hotword_count = self.config.get("max_hotword_count", 4)
+            max_holiday_count = self.config.get("max_holiday_count", 3)
 
-        date_info = get_current_date_info()
+            date_info = get_current_date_info()
 
-        anime_list, bili_hotwords, hitokoto_data, moyu_list, world_news, it_news = (
-            await self._fetch_all_data(
-                max_anime_count=max_anime_count,
-                max_news_count=max_news_count,
-                max_hotword_count=max_hotword_count,
-                max_holiday_count=max_holiday_count,
+            anime_list, bili_hotwords, hitokoto_data, moyu_list, world_news, it_news = (
+                await self._fetch_all_data(
+                    max_anime_count=max_anime_count,
+                    max_news_count=max_news_count,
+                    max_hotword_count=max_hotword_count,
+                    max_holiday_count=max_holiday_count,
+                )
             )
-        )
 
-        template_data = {
-            "date_info": date_info,
-            "anime_list": anime_list or [],
-            "bili_hotwords": bili_hotwords or [],
-            "hitokoto_data": hitokoto_data or {"hitokoto": "暂无", "from": "未知"},
-            "moyu_list": moyu_list or [],
-            "world_news": world_news or [],
-            "it_news": it_news or [],
-        }
+            template_data = {
+                "date_info": date_info,
+                "anime_list": anime_list or [],
+                "bili_hotwords": bili_hotwords or [],
+                "hitokoto_data": hitokoto_data or {"hitokoto": "暂无", "from": "未知"},
+                "moyu_list": moyu_list or [],
+                "world_news": world_news or [],
+                "it_news": it_news or [],
+            }
 
-        logger.info(
-            f"模板数据准备完成: 新番={len(template_data['anime_list'])}, "
-            f"热点={len(template_data['bili_hotwords'])}, "
-            f"节假日={len(template_data['moyu_list'])}, "
-            f"世界新闻={len(template_data['world_news'])}, "
-            f"IT新闻={len(template_data['it_news'])}"
-        )
+            logger.info(
+                f"模板数据准备完成: 新番={len(template_data['anime_list'])}, "
+                f"热点={len(template_data['bili_hotwords'])}, "
+                f"节假日={len(template_data['moyu_list'])}, "
+                f"世界新闻={len(template_data['world_news'])}, "
+                f"IT新闻={len(template_data['it_news'])}"
+            )
 
-        try:
-            with open(self.template_path, "r", encoding="utf-8") as f:
-                html_template_str = f.read()
-        except Exception as e:
-            logger.error(f"读取模板文件失败: {e}", exc_info=True)
-            raise
+            try:
+                with open(self.template_path, "r", encoding="utf-8") as f:
+                    html_template_str = f.read()
+            except Exception as e:
+                logger.error(f"读取模板文件失败: {e}", exc_info=True)
+                raise
 
-        template = Template(html_template_str)
-        rendered_html = template.render(**template_data)
-        rendered_html = await self._embed_resources(rendered_html)
+            template = Template(html_template_str)
+            rendered_html = template.render(**template_data)
+            rendered_html = await self._embed_resources(rendered_html)
 
-        style_fix = """
+            style_fix = """
 html, body {
   width: 578px;
   margin: 0;
@@ -203,11 +270,11 @@ html, body {
   overflow-x: hidden;
 }
 """
-        rendered_html = rendered_html.replace("</style>", style_fix + "</style>", 1)
+            rendered_html = rendered_html.replace("</style>", style_fix + "</style>", 1)
 
-        image_path = await self._render_html_with_playwright(rendered_html)
-        logger.info("日报生成成功")
-        return image_path
+            image_path = await self._render_html_with_playwright(rendered_html)
+            logger.info("日报生成成功")
+            return image_path
     
     async def _fetch_all_data(
         self,
@@ -334,8 +401,9 @@ html, body {
             with open(temp_html_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
 
+            # 使用缓存目录保存图片
             if output_path is None:
-                output_path = temp_html_path.replace(".html", ".png")
+                output_path = self._get_today_cache_path()
 
             # DPR (device scale factor): 越大越清晰，但图片更大、渲染更慢
             dpr = int(self.config.get("render_dpr", 3))
@@ -391,11 +459,14 @@ html, body {
                         "width": int(box["width"]),
                         "height": int(box["height"]),
                     }
+                    tmp_output = output_path + ".tmp"
                     await page.screenshot(
-                        path=output_path,
+                        path=tmp_output,
                         type="png",
                         clip=clip,
                     )
+                    # 原子替换：先写 .tmp 再 rename，防止中途崩溃留下损坏的缓存文件
+                    os.replace(tmp_output, output_path)
 
                     logger.info(f"截图完成: {output_path}")
                     return output_path
@@ -553,14 +624,6 @@ html, body {
 
         except Exception as e:
             logger.error(f"定时推送日报失败: {e}", exc_info=True)
-        finally:
-            # 清理临时文件
-            if image_path and os.path.exists(image_path):
-                try:
-                    os.remove(image_path)
-                    logger.debug(f"已清理临时图片文件: {image_path}")
-                except Exception as e:
-                    logger.warning(f"清理临时图片文件失败: {e}")
 
     def _load_group_mapping(self):
         """从文件加载群号到 unified_msg_origin 的映射"""
@@ -646,7 +709,6 @@ html, body {
         """使用 AI 生成个性化的推送文本"""
         try:
             # 获取当前时间和节日信息
-            from datetime import datetime
             now = datetime.now()
             hour = now.hour
             date_info = get_current_date_info()
@@ -773,7 +835,6 @@ html, body {
                 return f"📰 距离{holiday_name}还有7天！日报来啦~\n"
 
         # 随机选择一个问候语
-        import random
         return f"📰 {random.choice(period_greetings)}\n"
 
     async def _send_group_msg_via_api(self, group_id: str, image_b64: str, greeting_text: str = "") -> bool:
