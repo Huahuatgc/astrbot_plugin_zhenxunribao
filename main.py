@@ -144,8 +144,8 @@ class ZhenxunReportPlugin(Star):
                         and ("NTEvent" in str(e) or "sendMsg" in str(e)
                              or "onMsgInfoListUpdate" in str(e))):
                     logger.warning(
-                        f"图片可能已成功发送，但 NapCat/QQNT 回执超时 (retcode=1200)。"
-                        f"若长时间(超过60s)不显示请重试 /日报。"
+                        "图片可能已成功发送，但 NapCat/QQNT 回执超时 (retcode=1200)。"
+                        "若长时间(超过60s)不显示请重试 /日报。"
                     )
                 else:
                     raise
@@ -604,7 +604,7 @@ html, body {
                                          or "onMsgInfoListUpdate" in str(e))):
                                 logger.warning(
                                     f"群 {clean_group_id} 图片可能已发送，"
-                                    f"NapCat/QQNT 回执超时 (retcode=1200)"
+                                    "NapCat/QQNT 回执超时 (retcode=1200)"
                                 )
                                 sent = True
                             else:
@@ -719,7 +719,7 @@ html, body {
                 holiday_data = await self.holiday_api.get_moyu_list_async(max_count=1)
                 if holiday_data and len(holiday_data) > 0:
                     moyu_list = holiday_data
-            except:
+            except Exception:
                 pass
             
             # 检查是否启用 AI 生成问候语
