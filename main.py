@@ -34,7 +34,7 @@ class ZhenxunReportPlugin(Star):
         self.plugin_dir = plugin_dir
 
         # 创建共享的 aiohttp ClientSession，供所有 API 类复用
-        self.http_session = aiohttp.ClientSession()
+        self.http_session = self._build_session()
 
         api_token = config.get("api_token", "")
         self.bgm_api = BGMAPI(session=self.http_session)
@@ -73,7 +73,7 @@ class ZhenxunReportPlugin(Star):
             
             # 确保 HTTP session 可用
             if self.http_session is None or self.http_session.closed:
-                self.http_session = aiohttp.ClientSession()
+                self.http_session = self._build_session()
                 # 重新初始化 API 客户端的 session
                 self._reinit_api_sessions()
             
@@ -81,6 +81,11 @@ class ZhenxunReportPlugin(Star):
             logger.info("定时推送任务已启动（延迟初始化）")
         except Exception as e:
             logger.error(f"启动定时推送任务失败: {e}", exc_info=True)
+
+    def _build_session(self) -> aiohttp.ClientSession:
+        """创建带代理的 aiohttp ClientSession"""
+        proxy = self.config.get("proxy", "") or None
+        return aiohttp.ClientSession(proxy=proxy)
 
     def _reinit_api_sessions(self):
         """重新初始化 API 客户端的 session"""
