@@ -21,7 +21,7 @@ class BGMAPI(BaseAPI):
             session: 可选的 aiohttp.ClientSession，如果提供则复用
         """
         super().__init__(session)
-        self.url = "https://api.bgm.tv/calendar"
+        self.url = "https://api.bangumi.one/calendar"
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
